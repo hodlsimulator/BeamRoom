@@ -172,7 +172,6 @@
 				E13AEE3D2E7F942100331955 /* Sources */,
 				E13AEE3E2E7F942100331955 /* Frameworks */,
 				E13AEE3F2E7F942100331955 /* Resources */,
-				E1CE613B2E80022C00BD003E /* Read-only validator */,
 			);
 			buildRules = (
 			);
@@ -246,30 +245,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		E1CE613B2E80022C00BD003E /* Read-only validator */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
-				"$(SRCROOT)/$(INFOPLIST_FILE)",
-			);
-			name = "Read-only validator";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n\nEXT_PT=\"$(plutil -extract NSExtension.NSExtensionPointIdentifier raw -o - \"$PLIST\" 2>/dev/null || true)\"\nPRINC=\"$(plutil -extract NSExtension.NSExtensionPrincipalClass    raw -o - \"$PLIST\" 2>/dev/null || true)\"\nMODE=\"$(plutil -extract RPBroadcastProcessMode                    raw -o - \"$PLIST\" 2>/dev/null || true)\"\n\n[ \"$EXT_PT\" = \"com.apple.broadcast-services-upload\" ] || { echo \"❌ Bad NSExtensionPointIdentifier: $EXT_PT\"; exit 1; }\n[ -n \"$PRINC\" ] || { echo \"❌ Missing NSExtensionPrincipalClass\"; exit 1; }\n[ \"$MODE\" = \"RPBroadcastProcessModeSampleBuffer\" ] || { echo \"❌ Missing/wrong RPBroadcastProcessMode: $MODE\"; exit 1; }\necho \"✅ Upload appex Info.plist OK\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E13AEDCD2E7F73D100331955 /* Sources */ = {
