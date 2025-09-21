@@ -4,26 +4,19 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  M1 — Discovery & pairing (Wi-Fi Aware + control channel)
-//  • Bonjour name extraction via NWEndpoint.service
-//  • Per-connection line buffers stored in a dictionary (no captured inout)
-//  • All state/receive callbacks hop to MainActor before touching @Published
-//  • Explicit SendCompletion typing
+//  M1 — Discovery & pairing (Wi-Fi Aware + Bonjour fallback)
+//  • NWBrowser + NetServiceBrowser in parallel
+//  • NWListener + NetService publish in parallel
+//  • All UI-facing state hops to MainActor
 //
 
 import Foundation
 import Network
 import OSLog
 
+// MARK: - Roles, errors
+
 public enum BeamRole: String, Codable { case host, viewer }
-
-public struct BeamVersion {
-    public static let string = "0.1.0-M1"
-}
-
-public enum BeamAppID {
-    public static let string = "beamroom"
-}
 
 public enum BeamError: Error, LocalizedError {
     case invalidMessage
@@ -48,11 +41,10 @@ public enum BeamError: Error, LocalizedError {
 // MARK: - Control messages
 
 public struct HandshakeRequest: Codable, Equatable {
-    public let app: String = BeamAppID.string
+    public let app: String = "beamroom"
     public let ver: Int = 1
     public let role: BeamRole = .viewer
     public let code: String
-
     public init(code: String) { self.code = code }
 }
 
@@ -61,141 +53,213 @@ public struct HandshakeResponse: Codable, Equatable {
     public let sessionID: UUID?
     public let udpPort: UInt16?
     public let message: String?
-
     public init(ok: Bool, sessionID: UUID? = nil, udpPort: UInt16? = nil, message: String? = nil) {
-        self.ok = ok
-        self.sessionID = sessionID
-        self.udpPort = udpPort
-        self.message = message
+        self.ok = ok; self.sessionID = sessionID; self.udpPort = udpPort; self.message = message
     }
 }
 
 public struct Heartbeat: Codable, Equatable { public let hb: Int = 1 }
 
-// MARK: - Utilities
+// MARK: - Helpers
 
 fileprivate enum Frame {
-    static let newline = Data([0x0A]) // \n
+    static let nl = UInt8(0x0A) // \n
 
     static func encodeLine<T: Encodable>(_ value: T) throws -> Data {
         let data = try JSONEncoder().encode(value)
-        var out = Data()
+        var out = Data(capacity: data.count + 1)
         out.append(data)
-        out.append(newline)
+        out.append(nl)
         return out
     }
 
+    /// Append `incoming`, return all complete newline-delimited frames, keep tail in buffer.
     @discardableResult
     static func drainLines(buffer: inout Data, incoming: Data) -> [Data] {
         buffer.append(incoming)
         var lines: [Data] = []
-        while let range = buffer.firstRange(of: newline) {
-            let line = buffer.subdata(in: 0..<range.lowerBound)
-            buffer.removeSubrange(0..<range.upperBound)
-            lines.append(line)
+        while let idx = buffer.firstIndex(of: nl) {
+            let line = buffer.prefix(upTo: idx)
+            lines.append(Data(line))
+            buffer.removeSubrange(..<buffer.index(after: idx))
         }
         return lines
     }
 }
 
 fileprivate extension Data {
-    var utf8String: String { String(data: self, encoding: .utf8) ?? "" }
+    var utf8String: String { String(data: self, encoding: .utf8) ?? "<non-UTF8 \(count) bytes>" }
 }
 
-// MARK: - Discovery (Viewer)
+// MARK: - Discovery model
 
 public struct DiscoveredHost: Identifiable, Hashable {
-    public let id: UUID
+    public let id: String
     public let name: String
     public let endpoint: NWEndpoint
 
     public init(name: String, endpoint: NWEndpoint) {
-        self.id = UUID()
         self.name = name
         self.endpoint = endpoint
-    }
-
-    public static func == (lhs: DiscoveredHost, rhs: DiscoveredHost) -> Bool {
-        lhs.name == rhs.name && lhs.endpoint.debugDescription == rhs.endpoint.debugDescription
-    }
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(name)
-        hasher.combine(endpoint.debugDescription)
+        self.id = "\(name)|\(endpoint.debugDescription)"
     }
 }
 
-@MainActor
-public final class BeamBrowser: ObservableObject {
+// MARK: - Viewer: Browser (NWBrowser + NetServiceBrowser)
+
+public final class BeamBrowser: NSObject, ObservableObject {
+
     @Published public private(set) var hosts: [DiscoveredHost] = []
 
-    private var browser: NWBrowser?
+    private var nwBrowser: NWBrowser?
+    private var nsBrowser: NetServiceBrowser?
+    private var aggregate: [String: DiscoveredHost] = [:] // mutated on MainActor
     private let log = Logger(subsystem: BeamConfig.subsystemViewer, category: "browser")
 
-    public init() {}
+    // Keep references so we can stop them on teardown (no equality/remove needed)
+    private var nsServices: [NetService] = []
+
+    public override init() { }
 
     public func start() throws {
-        guard browser == nil else { throw BeamError.alreadyRunning }
+        guard nwBrowser == nil, nsBrowser == nil else { throw BeamError.alreadyRunning }
 
+        // Reset on main
+        Task { @MainActor in
+            self.aggregate.removeAll()
+            self.hosts.removeAll()
+        }
+
+        // ---- Path A: NWBrowser (Bonjour over Wi-Fi/Wi-Fi Aware)
         let descriptor = NWBrowser.Descriptor.bonjour(type: BeamConfig.controlService, domain: nil)
         let params = NWParameters()
         params.includePeerToPeer = true
+        let nw = NWBrowser(for: descriptor, using: params)
+        self.nwBrowser = nw
 
-        let browser = NWBrowser(for: descriptor, using: params)
-        self.browser = browser
-
-        browser.stateUpdateHandler = { [weak self] state in
+        nw.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
-            self.log.debug("Browser state: \(String(describing: state))")
+            self.log.debug("NWBrowser state: \(String(describing: state))")
             if case .failed(let err) = state {
-                self.log.error("Browser failed: \(err.localizedDescription, privacy: .public)")
+                self.log.error("NWBrowser failed: \(err.localizedDescription, privacy: .public)")
             }
         }
 
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
+        nw.browseResultsChangedHandler = { [weak self] results, _ in
             guard let self else { return }
-            var new: [DiscoveredHost] = []
-            for result in results {
-                var name = "Host"
-                if case let .service(name: svcName, type: _, domain: _, interface: _) = result.endpoint {
-                    name = svcName
-                } else {
-                    name = result.endpoint.debugDescription
+            Task { @MainActor in
+                // Rebuild from scratch to avoid drift
+                var newAgg: [String: DiscoveredHost] = [:]
+                for r in results {
+                    let ep = r.endpoint
+                    let name: String
+                    if case let .service(name: svcName, type: _, domain: _, interface: _) = ep {
+                        name = svcName
+                    } else {
+                        name = "Host"
+                    }
+                    newAgg[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
                 }
-                new.append(DiscoveredHost(name: name, endpoint: result.endpoint))
+                self.aggregate = newAgg
+                self.publishHosts()
             }
-            new.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            Task { @MainActor in self.hosts = new }
         }
 
-        browser.start(queue: .main)
-        log.info("Discovery started for \(BeamConfig.controlService, privacy: .public)")
+        nw.start(queue: .main)
+        log.info("NWBrowser started for \(BeamConfig.controlService, privacy: .public)")
+
+        // ---- Path B: NetServiceBrowser fallback (classic Bonjour)
+        let nsb = NetServiceBrowser()
+        #if os(iOS)
+        nsb.includesPeerToPeer = true
+        #endif
+        nsb.delegate = self
+        self.nsBrowser = nsb
+
+        let typeToSearch = BeamConfig.controlService.hasSuffix(".")
+            ? BeamConfig.controlService
+            : BeamConfig.controlService + "."
+        nsb.searchForServices(ofType: typeToSearch, inDomain: "local.")
+        log.info("NetServiceBrowser started for \(typeToSearch, privacy: .public)")
     }
 
     public func stop() {
-        browser?.cancel()
-        browser = nil
-        hosts.removeAll()
+        nwBrowser?.cancel(); nwBrowser = nil
+
+        nsBrowser?.stop(); nsBrowser = nil
+        for s in nsServices { s.stop() }
+        nsServices.removeAll()
+
+        Task { @MainActor in
+            self.aggregate.removeAll()
+            self.hosts.removeAll()
+        }
         log.info("Discovery stopped")
+    }
+
+    @MainActor private func publishHosts() {
+        var list = Array(aggregate.values)
+        list.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        self.hosts = list
     }
 }
 
-// MARK: - Host Control Server
+// Allow capturing `self` in @Sendable NWBrowser handlers.
+extension BeamBrowser: @unchecked Sendable {}
+
+extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
+
+    public func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
+        service.delegate = self
+        #if os(iOS)
+        service.includesPeerToPeer = true
+        #endif
+        nsServices.append(service)
+
+        let name = service.name
+        let type = service.type.hasSuffix(".") ? String(service.type.dropLast()) : service.type
+        let domain = service.domain.isEmpty ? "local." : service.domain
+        let ep = NWEndpoint.service(name: name, type: type, domain: domain, interface: nil)
+
+        Task { @MainActor in
+            self.aggregate[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
+            if !moreComing { self.publishHosts() }
+        }
+    }
+
+    public func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
+        let name = service.name
+        let type = service.type.hasSuffix(".") ? String(service.type.dropLast()) : service.type
+        let domain = service.domain.isEmpty ? "local." : service.domain
+        let ep = NWEndpoint.service(name: name, type: type, domain: domain, interface: nil)
+
+        Task { @MainActor in
+            self.aggregate.removeValue(forKey: ep.debugDescription)
+            if !moreComing { self.publishHosts() }
+        }
+    }
+
+    public func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String : NSNumber]) {
+        log.error("NetServiceBrowser error: \(String(describing: errorDict), privacy: .public)")
+    }
+}
+
+// MARK: - Host control server (NWListener + NetService)
 
 public struct PendingPair: Identifiable, Equatable {
-    public let id: UUID
+    public let id = UUID()
     public let code: String
     public let receivedAt: Date
     public let remoteDescription: String
     fileprivate let connection: NWConnection
 
+    public static func == (lhs: PendingPair, rhs: PendingPair) -> Bool { lhs.id == rhs.id }
     public init(code: String, remoteDescription: String, connection: NWConnection) {
-        self.id = UUID()
         self.code = code
         self.receivedAt = Date()
         self.remoteDescription = remoteDescription
         self.connection = connection
     }
-    public static func == (lhs: PendingPair, rhs: PendingPair) -> Bool { lhs.id == rhs.id }
 }
 
 public struct ActiveSession: Identifiable, Equatable {
@@ -206,15 +270,17 @@ public struct ActiveSession: Identifiable, Equatable {
 
 @MainActor
 public final class BeamControlServer: ObservableObject {
+
     @Published public private(set) var isRunning: Bool = false
     @Published public private(set) var publishedName: String?
     @Published public private(set) var pendingPairs: [PendingPair] = []
     @Published public private(set) var sessions: [ActiveSession] = []
 
     private var listener: NWListener?
+    private var netService: NetService?
     private var pendingByID: [UUID: PendingPair] = [:]
-    private var connections: [NWConnection] = []              // strong refs
-    private var rxBuffers: [ObjectIdentifier: Data] = [:]     // per-connection line buffers
+    private var connections: [NWConnection] = []
+    private var rxBuffers: [ObjectIdentifier: Data] = [:]
 
     private let log = Logger(subsystem: BeamConfig.subsystemHost, category: "control-server")
 
@@ -226,46 +292,48 @@ public final class BeamControlServer: ObservableObject {
         let params = NWParameters.tcp
         params.includePeerToPeer = true
 
-        let listener = try NWListener(using: params)
-        self.listener = listener
-        listener.service = NWListener.Service(name: serviceName, type: BeamConfig.controlService)
+        let l = try NWListener(using: params)
+        listener = l
+        l.service = NWListener.Service(name: serviceName, type: BeamConfig.controlService)
 
-        listener.newConnectionHandler = { [weak self] conn in
+        l.newConnectionHandler = { [weak self] conn in
             guard let self else { return }
             Task { @MainActor in self.handle(newConnection: conn) }
         }
 
-        listener.stateUpdateHandler = { [weak self] state in
+        l.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .ready:
                 Task { @MainActor in
                     self.isRunning = true
                     self.publishedName = serviceName
+                    self.publishNetServiceIfNeeded(serviceName: serviceName, listener: l)
                 }
                 self.log.info("Control server ready as \(serviceName, privacy: .public) on \(BeamConfig.controlService, privacy: .public)")
             case .failed(let err):
                 self.log.error("Listener failed: \(err.localizedDescription, privacy: .public)")
                 Task { @MainActor in
-                    self.isRunning = false
-                    self.publishedName = nil
+                    self.isRunning = false; self.publishedName = nil
+                    self.netService?.stop(); self.netService = nil
                 }
             case .cancelled:
                 self.log.info("Listener cancelled")
                 Task { @MainActor in
-                    self.isRunning = false
-                    self.publishedName = nil
+                    self.isRunning = false; self.publishedName = nil
+                    self.netService?.stop(); self.netService = nil
                 }
-            default: break
+            default:
+                break
             }
         }
 
-        listener.start(queue: .main)
+        l.start(queue: .main)
     }
 
     public func stop() {
-        listener?.cancel()
-        listener = nil
+        listener?.cancel(); listener = nil
+        netService?.stop(); netService = nil
         for c in connections { c.cancel() }
         connections.removeAll()
         pendingPairs.removeAll()
@@ -275,37 +343,43 @@ public final class BeamControlServer: ObservableObject {
         publishedName = nil
     }
 
-    @MainActor
+    private func publishNetServiceIfNeeded(serviceName: String, listener: NWListener) {
+        guard netService == nil else { return }
+        let port = listener.port?.rawValue ?? 0
+        let type = BeamConfig.controlService.hasSuffix(".")
+            ? BeamConfig.controlService : BeamConfig.controlService + "."
+        let s = NetService(domain: "local.", type: type, name: serviceName, port: Int32(port))
+        #if os(iOS)
+        s.includesPeerToPeer = true
+        #endif
+        s.publish()
+        netService = s
+        log.info("NetService published: \(serviceName, privacy: .public) \(type, privacy: .public) port \(port)")
+    }
+
     public func accept(_ id: UUID) {
         guard let pending = pendingByID[id] else { return }
-
         let sessionID = UUID()
         let response = HandshakeResponse(ok: true, sessionID: sessionID, udpPort: 0, message: nil)
         send(response, over: pending.connection)
 
-        // Move to sessions
         let sess = ActiveSession(id: sessionID, startedAt: Date(), remoteDescription: pending.remoteDescription)
         sessions.append(sess)
 
-        // Precompute a Sendable key so we don't capture 'pending' (non-Sendable) in @Sendable closure
         let key = ObjectIdentifier(pending.connection)
-
         pending.connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .cancelled, .failed:
                 Task { @MainActor in
                     self.removeSession(id: sessionID)
-                    // Clean per-connection buffers and strong-ref list without capturing the NWConnection itself
                     self.rxBuffers.removeValue(forKey: key)
                     self.connections.removeAll { ObjectIdentifier($0) == key }
                 }
-            default:
-                break
+            default: break
             }
         }
 
-        // No longer need the pending request entry
         removePending(id: id)
     }
 
@@ -329,7 +403,6 @@ public final class BeamControlServer: ObservableObject {
     private func handle(newConnection conn: NWConnection) {
         connections.append(conn)
         rxBuffers[ObjectIdentifier(conn)] = Data()
-
         let whereFrom = conn.endpoint.debugDescription
         log.debug("Incoming connection from \(whereFrom, privacy: .public)")
 
@@ -358,11 +431,9 @@ public final class BeamControlServer: ObservableObject {
         conn.start(queue: .main)
     }
 
-    // NOTE: No 'inout' buffer — we manage per-conn buffers in rxBuffers.
     private func receiveNext(on conn: NWConnection) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
             guard let self else { return }
-
             if let error {
                 Task { @MainActor in
                     self.log.error("Receive error: \(error.localizedDescription, privacy: .public)")
@@ -371,19 +442,15 @@ public final class BeamControlServer: ObservableObject {
                 }
                 return
             }
-
             if let data, !data.isEmpty {
                 Task { @MainActor in
                     let key = ObjectIdentifier(conn)
                     var buffer = self.rxBuffers[key] ?? Data()
                     let lines = Frame.drainLines(buffer: &buffer, incoming: data)
                     self.rxBuffers[key] = buffer
-                    for line in lines {
-                        self.handleLine(line, from: conn)
-                    }
+                    for line in lines { self.handleLine(line, from: conn) }
                 }
             }
-
             if isComplete {
                 Task { @MainActor in
                     self.log.debug("Conn completed by remote")
@@ -392,8 +459,6 @@ public final class BeamControlServer: ObservableObject {
                 }
                 return
             }
-
-            // Continue loop
             Task { @MainActor in self.receiveNext(on: conn) }
         }
     }
@@ -401,12 +466,10 @@ public final class BeamControlServer: ObservableObject {
     private func handleLine(_ line: Data, from conn: NWConnection) {
         do {
             let req = try JSONDecoder().decode(HandshakeRequest.self, from: line)
-            guard req.app == BeamAppID.string, req.ver == 1, req.role == .viewer else {
+            guard req.app == "beamroom", req.ver == 1, req.role == .viewer else {
                 throw BeamError.invalidMessage
             }
-            let pending = PendingPair(code: req.code,
-                                      remoteDescription: conn.endpoint.debugDescription,
-                                      connection: conn)
+            let pending = PendingPair(code: req.code, remoteDescription: conn.endpoint.debugDescription, connection: conn)
             pendingByID[pending.id] = pending
             pendingPairs.append(pending)
             log.info("Pair request: code \(req.code, privacy: .public) from \(pending.remoteDescription, privacy: .public)")
@@ -422,19 +485,16 @@ public final class BeamControlServer: ObservableObject {
     private func send<T: Encodable>(_ payload: T, over conn: NWConnection) {
         do {
             let framed = try Frame.encodeLine(payload)
-            conn.send(content: framed,
-                      completion: NWConnection.SendCompletion.contentProcessed({ [weak self] (sendErr: NWError?) in
-                if let sendErr {
-                    self?.log.error("Send error: \(sendErr.localizedDescription, privacy: .public)")
-                }
-            }))
+            conn.send(content: framed, completion: .contentProcessed { [weak self] sendErr in
+                if let sendErr { self?.log.error("Send error: \(sendErr.localizedDescription, privacy: .public)") }
+            })
         } catch {
             log.error("Encoding error: \(String(describing: error), privacy: .public)")
         }
     }
 }
 
-// MARK: - Viewer Control Client
+// MARK: - Viewer: Control client
 
 public enum ClientStatus: Equatable {
     case idle
@@ -447,7 +507,6 @@ public enum ClientStatus: Equatable {
 @MainActor
 public final class BeamControlClient: ObservableObject {
     @Published public private(set) var status: ClientStatus = .idle
-
     private var connection: NWConnection?
     private var hbTask: Task<Void, Never>?
     private var rxBuffer = Data()
@@ -457,8 +516,8 @@ public final class BeamControlClient: ObservableObject {
 
     public func connect(to host: DiscoveredHost, code: String) {
         disconnect()
-
         status = .connecting(hostName: host.name, code: code)
+
         let params = NWParameters.tcp
         params.includePeerToPeer = true
 
@@ -495,26 +554,19 @@ public final class BeamControlClient: ObservableObject {
     }
 
     public func disconnect() {
-        hbTask?.cancel()
-        hbTask = nil
-        connection?.cancel()
-        connection = nil
+        hbTask?.cancel(); hbTask = nil
+        connection?.cancel(); connection = nil
         rxBuffer.removeAll()
     }
 
-    public static func randomCode() -> String {
-        String(format: "%04d", Int.random(in: 0...9999))
-    }
+    public static func randomCode() -> String { String(format: "%04d", Int.random(in: 0...9999)) }
 
     private func sendHandshake(code: String) {
         guard let conn = connection else { return }
         let req = HandshakeRequest(code: code)
         do {
             let data = try Frame.encodeLine(req)
-            conn.send(content: data,
-                      completion: NWConnection.SendCompletion.contentProcessed({ [weak self] (_: NWError?) in
-                _ = self
-            }))
+            conn.send(content: data, completion: .contentProcessed { _ in })
         } catch {
             log.error("Encode handshake failed: \(String(describing: error), privacy: .public)")
         }
@@ -534,9 +586,7 @@ public final class BeamControlClient: ObservableObject {
             }
             if let data, !data.isEmpty {
                 let lines = Frame.drainLines(buffer: &self.rxBuffer, incoming: data)
-                for line in lines {
-                    Task { @MainActor in self.handleLine(line) }
-                }
+                for line in lines { Task { @MainActor in self.handleLine(line) } }
             }
             if isComplete {
                 Task { @MainActor in
@@ -574,26 +624,25 @@ public final class BeamControlClient: ObservableObject {
     private func startHeartbeats() {
         hbTask?.cancel()
         hbTask = Task { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
+            while let self, !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                await MainActor.run {
-                    let shouldHB: Bool
-                    switch self.status {
-                    case .waitingAcceptance, .paired: shouldHB = true
-                    default: shouldHB = false
-                    }
-                    guard shouldHB else { return }
-                    let hb = Heartbeat()
-                    do {
-                        let data = try Frame.encodeLine(hb)
-                        self.connection?.send(content: data,
-                                              completion: NWConnection.SendCompletion.contentProcessed({ (_: NWError?) in }))
-                    } catch {
-                        // ignore
-                    }
-                }
+                await self.sendHeartbeatIfNeeded()
             }
+        }
+    }
+
+    @MainActor
+    private func sendHeartbeatIfNeeded() {
+        switch status {
+        case .waitingAcceptance, .paired:
+            do {
+                let data = try Frame.encodeLine(Heartbeat())
+                connection?.send(content: data, completion: .contentProcessed { _ in })
+            } catch {
+                // ignore
+            }
+        default:
+            break
         }
     }
 }
