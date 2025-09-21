@@ -126,7 +126,7 @@ fileprivate func pathSummary(_ p: NWPath?) -> String {
     if p.usesInterfaceType(.wifi) { parts.append("wifi") }
     if p.usesInterfaceType(.wiredEthernet) { parts.append("wired") }
     if p.usesInterfaceType(.cellular) { parts.append("cell") }
-    if p.usesInterfaceType(.other) { parts.append("other") } // AWDL often shows as .other
+    if p.usesInterfaceType(.other) { parts.append("other") } // AWDL often reports as .other
 
     switch p.status {
     case .satisfied: parts.append("ok")
@@ -270,7 +270,7 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
         service.includesPeerToPeer = true
         nsServices.append(service)
 
-        // Resolve addresses to log them (helps see if AWDL/Wi-Fi addresses show up)
+        // Resolve addresses to log them (see AWDL vs Wi-Fi)
         service.resolve(withTimeout: 5.0)
 
         let name = service.name
@@ -509,19 +509,23 @@ public final class BeamControlServer: NSObject, ObservableObject {
         let cid = self.cid(for: conn)
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
             let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
-            #if AUTO_ACCEPT_PAIR
-            let sid = UUID()
-            let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
-            sendResponse(resp, over: conn)
-            sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: remote))
-            BeamLog.info("conn#\(cid) AUTO-ACCEPT code \(req.code) → session \(sid)", tag: "host")
-            #else
+
+            // ✅ Auto-accept flow (toggle in BeamConfig)
+            if BeamConfig.autoAcceptDuringTest {
+                let sid = UUID()
+                let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
+                sendResponse(resp, over: conn)
+                sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: remote))
+                BeamLog.info("conn#\(cid) AUTO-ACCEPT code \(req.code) → session \(sid)", tag: "host")
+                return
+            }
+
+            // Manual flow (pending → Accept/Decline)
             let p = PendingPair(code: req.code, remoteDescription: remote, connection: conn, connID: cid)
             pendingByID[p.id] = p
             pendingPairs.append(p)
             serverLog.info("Pending pair from \(remote, privacy: .public) code \(req.code, privacy: .public)")
             BeamLog.info("conn#\(cid) handshake code \(req.code) (pending=\(pendingPairs.count))", tag: "host")
-            #endif
             return
         }
         serverLog.error("Invalid line on control connection")

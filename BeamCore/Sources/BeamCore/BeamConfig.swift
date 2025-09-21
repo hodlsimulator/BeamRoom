@@ -9,14 +9,17 @@ import Foundation
 
 public enum BeamConfig {
     // Bonjour / service types
-    public static let controlService = "_beamctl._tcp"
-    public static let mediaService   = "_beamroom._udp"
+    public static let mediaService: String   = "_beamroom._udp"
+    public static let controlService: String = "_beamctl._tcp"
 
-    // Fixed TCP port for control channel (manual connect / Wi-Fi fallback)
+    // Fixed TCP control port
     public static let controlPort: UInt16 = 52345
 
-    // Subsystems for OSLog (apps + broadcast upload extension)
+    // OSLog subsystems
     public static let subsystemHost   = "com.conornolan.BeamRoomHost"
     public static let subsystemViewer = "com.conornolan.BeamRoomViewer"
-    public static let subsystemExt    = "com.conornolan.BeamRoomBroadcastUpload"
+
+    // ✅ Temporary: auto-accept incoming pairing on Host to prove the path end-to-end.
+    // Turn this off when you want manual Accept/Decline again.
+    public static let autoAcceptDuringTest = true
 }
