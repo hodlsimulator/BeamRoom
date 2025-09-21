@@ -4,12 +4,13 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  Discovery & pairing with in-app logging (conn IDs + path info)
+//  Discovery & pairing with in-app logging (conn IDs, path info, address resolution)
 //
 
 import Foundation
 import Network
 import OSLog
+import Darwin
 
 // MARK: - Roles, errors
 
@@ -106,7 +107,7 @@ public struct DiscoveredHost: Identifiable, Hashable {
     }
 }
 
-// MARK: - Path logging helpers (no effectiveInterface/supportsPeerToPeer)
+// MARK: - Path & address logging helpers
 
 fileprivate func short(_ t: NWInterface.InterfaceType) -> String {
     switch t {
@@ -122,14 +123,11 @@ fileprivate func short(_ t: NWInterface.InterfaceType) -> String {
 fileprivate func pathSummary(_ p: NWPath?) -> String {
     guard let p else { return "-" }
     var parts: [String] = []
-
-    // Which interface types are in use for this path
     if p.usesInterfaceType(.wifi) { parts.append("wifi") }
     if p.usesInterfaceType(.wiredEthernet) { parts.append("wired") }
     if p.usesInterfaceType(.cellular) { parts.append("cell") }
-    if p.usesInterfaceType(.other) { parts.append("other") } // e.g. AWDL often shows as .other
+    if p.usesInterfaceType(.other) { parts.append("other") } // AWDL often shows as .other
 
-    // Status/flags
     switch p.status {
     case .satisfied: parts.append("ok")
     case .unsatisfied: parts.append("no")
@@ -139,11 +137,37 @@ fileprivate func pathSummary(_ p: NWPath?) -> String {
     if p.isExpensive { parts.append("exp") }
     if p.isConstrained { parts.append("con") }
 
-    // Available interfaces (for extra context)
     let ifs = p.availableInterfaces.map { short($0.type) }.joined(separator: "|")
     if !ifs.isEmpty { parts.append("ifs=\(ifs)") }
 
     return parts.joined(separator: ",")
+}
+
+fileprivate func renderSockaddr(_ data: Data) -> String? {
+    return data.withUnsafeBytes { raw -> String? in
+        guard let base = raw.baseAddress else { return nil }
+        let sa = base.assumingMemoryBound(to: sockaddr.self)
+        switch Int32(sa.pointee.sa_family) {
+        case AF_INET:
+            var sin = base.assumingMemoryBound(to: sockaddr_in.self).pointee
+            var addr = sin.sin_addr
+            var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            let c = inet_ntop(AF_INET, &addr, &buf, socklen_t(INET_ADDRSTRLEN))
+            let ip = c.map { String(cString: $0) } ?? "?"
+            let port = Int(UInt16(bigEndian: sin.sin_port))
+            return "\(ip):\(port)"
+        case AF_INET6:
+            var sin6 = base.assumingMemoryBound(to: sockaddr_in6.self).pointee
+            var addr6 = sin6.sin6_addr
+            var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            let c = inet_ntop(AF_INET6, &addr6, &buf, socklen_t(INET6_ADDRSTRLEN))
+            let ip = c.map { String(cString: $0) } ?? "?"
+            let port = Int(UInt16(bigEndian: sin6.sin6_port))
+            return "[\(ip)]:\(port)"
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - Viewer: Browser (NWBrowser + NetServiceBrowser)
@@ -169,7 +193,7 @@ public final class BeamBrowser: NSObject, ObservableObject {
             self.hosts.removeAll()
         }
 
-        // A) NWBrowser
+        // A) NWBrowser (Network.framework Bonjour)
         let descriptor = NWBrowser.Descriptor.bonjour(type: BeamConfig.controlService, domain: nil)
         let params = NWParameters()
         params.includePeerToPeer = true
@@ -211,7 +235,7 @@ public final class BeamBrowser: NSObject, ObservableObject {
 
         nw.start(queue: .main)
 
-        // B) NetServiceBrowser (classic)
+        // B) NetServiceBrowser (classic Bonjour) with address resolution logging
         let nsb = NetServiceBrowser()
         nsb.includesPeerToPeer = true
         nsb.delegate = self
@@ -246,6 +270,9 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
         service.includesPeerToPeer = true
         nsServices.append(service)
 
+        // Resolve addresses to log them (helps see if AWDL/Wi-Fi addresses show up)
+        service.resolve(withTimeout: 5.0)
+
         let name = service.name
         let type = service.type.hasSuffix(".") ? String(service.type.dropLast()) : service.type
         let domain = service.domain.isEmpty ? "local." : service.domain
@@ -254,6 +281,19 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
         Task { @MainActor in
             self.aggregate[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
             if !moreComing { self.publishHosts() }
+        }
+    }
+
+    public func netService(_ sender: NetService, didNotResolve errorDict: [String : NSNumber]) {
+        BeamLog.warn("NSResolve error: \(errorDict) for \(sender.name)", tag: "viewer")
+    }
+
+    public func netServiceDidResolveAddress(_ sender: NetService) {
+        let addrs = (sender.addresses ?? []).compactMap { renderSockaddr($0) }
+        if addrs.isEmpty {
+            BeamLog.info("Resolved \(sender.name) (no addresses)", tag: "viewer")
+        } else {
+            BeamLog.info("Resolved \(sender.name) → \(addrs.joined(separator: ", "))", tag: "viewer")
         }
     }
 
@@ -355,7 +395,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 self.connIDs[key] = self.connSeq
                 let cid = self.connSeq
                 let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
-                BeamLog.info("conn#\(cid) accepted (remote=\(remote))", tag: "host")
+                let ps = pathSummary(conn.currentPath)
+                BeamLog.info("conn#\(cid) accepted (remote=\(remote), path=\(ps))", tag: "host")
                 self.handleIncoming(conn)
             }
         }
@@ -468,11 +509,19 @@ public final class BeamControlServer: NSObject, ObservableObject {
         let cid = self.cid(for: conn)
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
             let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
+            #if AUTO_ACCEPT_PAIR
+            let sid = UUID()
+            let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
+            sendResponse(resp, over: conn)
+            sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: remote))
+            BeamLog.info("conn#\(cid) AUTO-ACCEPT code \(req.code) → session \(sid)", tag: "host")
+            #else
             let p = PendingPair(code: req.code, remoteDescription: remote, connection: conn, connID: cid)
             pendingByID[p.id] = p
             pendingPairs.append(p)
             serverLog.info("Pending pair from \(remote, privacy: .public) code \(req.code, privacy: .public)")
             BeamLog.info("conn#\(cid) handshake code \(req.code) (pending=\(pendingPairs.count))", tag: "host")
+            #endif
             return
         }
         serverLog.error("Invalid line on control connection")
@@ -484,9 +533,10 @@ public final class BeamControlServer: NSObject, ObservableObject {
         let cid = self.cid(for: conn)
         do {
             let bytes = try Frame.encodeLine(resp)
-            conn.send(content: bytes, completion: .contentProcessed { _ in })
+            conn.send(content: bytes, completion: .contentProcessed { _ in
+                BeamLog.debug("conn#\(cid) sent \(bytes.count) bytes (response ok=\(resp.ok))", tag: "host")
+            })
             if !resp.ok { conn.cancel() }
-            BeamLog.debug("conn#\(cid) sent \(bytes.count) bytes", tag: "host")
         } catch {
             serverLog.error("Failed to encode response: \(error.localizedDescription, privacy: .public)")
             BeamLog.error("conn#\(cid) send failed: \(error.localizedDescription)", tag: "host")
@@ -525,6 +575,7 @@ public final class BeamControlClient: ObservableObject {
 
     private var attemptSeq: Int = 0
     private var attemptID: Int = 0
+    private var handshakeTimeoutTask: Task<Void, Never>?
 
     public init() {}
 
@@ -566,6 +617,7 @@ public final class BeamControlClient: ObservableObject {
             case .failed(let err):
                 BeamLog.error("conn#\(self.attemptID) failed: \(err.localizedDescription) (path=\(ps))", tag: "viewer")
                 Task { @MainActor in
+                    self.handshakeTimeoutTask?.cancel()
                     self.status = .failed(reason: err.localizedDescription)
                     self.connection?.cancel()
                     self.connection = nil
@@ -573,6 +625,7 @@ public final class BeamControlClient: ObservableObject {
             case .cancelled:
                 BeamLog.warn("conn#\(self.attemptID) cancelled (path=\(ps))", tag: "viewer")
                 Task { @MainActor in
+                    self.handshakeTimeoutTask?.cancel()
                     if case .failed = self.status { /* keep failed */ } else {
                         self.status = .idle
                     }
@@ -586,6 +639,9 @@ public final class BeamControlClient: ObservableObject {
     }
 
     public func disconnect() {
+        handshakeTimeoutTask?.cancel()
+        handshakeTimeoutTask = nil
+
         connection?.cancel()
         connection = nil
         rxBuffer.removeAll()
@@ -602,8 +658,22 @@ public final class BeamControlClient: ObservableObject {
         do {
             let bytes = try Frame.encodeLine(req)
             status = .waitingAcceptance
-            conn.send(content: bytes, completion: .contentProcessed { _ in })
+            conn.send(content: bytes, completion: .contentProcessed { _ in
+                BeamLog.debug("conn#\(self.attemptID) sent \(bytes.count) bytes (handshake)", tag: "viewer")
+            })
             BeamLog.info("conn#\(attemptID) handshake sent (\(bytes.count) bytes, code \(code))", tag: "viewer")
+
+            // Timeout if Host doesn't accept shortly (helps see stalls)
+            handshakeTimeoutTask?.cancel()
+            handshakeTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                await MainActor.run {
+                    guard let self else { return }
+                    if case .waitingAcceptance = self.status {
+                        BeamLog.warn("conn#\(self.attemptID) WAIT TIMEOUT (no Host accept)", tag: "viewer")
+                    }
+                }
+            }
         } catch {
             status = .failed(reason: "Encode failed")
             conn.cancel()
@@ -624,6 +694,7 @@ public final class BeamControlClient: ObservableObject {
             }
             if isEOF || error != nil {
                 Task { @MainActor in
+                    self.handshakeTimeoutTask?.cancel()
                     if case .paired = self.status {
                         // Keep paired if peer closed intentionally.
                     } else if case .failed = self.status {
@@ -644,6 +715,7 @@ public final class BeamControlClient: ObservableObject {
     private func handleLine(_ line: Data) {
         if let resp = try? JSONDecoder().decode(HandshakeResponse.self, from: line) {
             Task { @MainActor in
+                self.handshakeTimeoutTask?.cancel()
                 if resp.ok, let sid = resp.sessionID {
                     self.status = .paired(session: sid, udpPort: resp.udpPort)
                     BeamLog.info("Paired ✓ session=\(sid)", tag: "viewer")
