@@ -4,8 +4,8 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  M1 UI — publishes control service, shows incoming pair requests,
-//  and lets the user Accept / Decline.
+//  Publishes the control service, shows pending pair requests,
+//  and (optionally) presents Wi-Fi Aware pairing UI.
 //
 
 import SwiftUI
@@ -14,19 +14,19 @@ import BeamCore
 import UIKit
 import Network
 
+// Toggle this at build-time if you want the Aware UI included.
 #if AWARE_UI_ENABLED
-#if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
-#endif
-#if canImport(WiFiAware)
 import WiFiAware
 #endif
-#endif
+
+// MARK: - View model
 
 @MainActor
 final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
+
     let server = BeamControlServer()
 
     func toggle() {
@@ -34,14 +34,20 @@ final class HostViewModel: ObservableObject {
             server.stop()
             started = false
         } else {
-            do { try server.start(serviceName: serviceName); started = true }
-            catch { started = false }
+            do {
+                try server.start(serviceName: serviceName)
+                started = true
+            } catch {
+                started = false
+            }
         }
     }
 
-    func accept(_ id: UUID) { server.accept(id) }
+    func accept(_ id: UUID)  { server.accept(id) }
     func decline(_ id: UUID) { server.decline(id) }
 }
+
+// MARK: - Root view
 
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
@@ -59,6 +65,7 @@ struct HostRootView: View {
                 HStack {
                     TextField("Service Name", text: $model.serviceName)
                         .textFieldStyle(.roundedBorder)
+
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
                 }
@@ -75,7 +82,9 @@ struct HostRootView: View {
                         Text(model.started
                              ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)"
                              : "Not advertising")
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                     }
 
                     if !model.server.sessions.isEmpty {
@@ -83,79 +92,96 @@ struct HostRootView: View {
                         List(model.server.sessions) { s in
                             HStack {
                                 VStack(alignment: .leading) {
-                                    Text(s.id.uuidString).font(.footnote).monospaced()
-                                    Text(s.remoteDescription).font(.caption2).foregroundStyle(.secondary)
+                                    Text(s.id.uuidString)
+                                        .font(.footnote).monospaced()
+                                    Text(s.remoteDescription)
+                                        .font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text(s.startedAt, style: .time).font(.footnote).foregroundStyle(.secondary)
+                                Text(s.startedAt, style: .time)
+                                    .font(.footnote).foregroundStyle(.secondary)
                             }
                         }
-                        .listStyle(.plain).frame(maxHeight: 180)
+                        .listStyle(.plain)
+                        .frame(maxHeight: 180)
                     }
 
                     Text("Pair Requests").font(.headline)
+
                     if model.server.pendingPairs.isEmpty {
                         Text("None yet.\nA Viewer will tap your name and send a 4-digit code.")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
 
                     List(model.server.pendingPairs) { p in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Code: \(p.code)").font(.title2).bold().monospaced()
-                                Text(p.remoteDescription).font(.caption2).foregroundStyle(.secondary)
+                                Text("Code: \(p.code)")
+                                    .font(.title2).bold().monospaced()
+                                Text(p.remoteDescription)
+                                    .font(.caption2).foregroundStyle(.secondary)
                             }
                             Spacer()
                             HStack(spacing: 8) {
-                                Button("Decline") { model.decline(p.id) }.buttonStyle(.bordered)
-                                Button("Accept") { model.accept(p.id) }.buttonStyle(.borderedProminent)
+                                Button("Decline") { model.decline(p.id) }
+                                    .buttonStyle(.bordered)
+                                Button("Accept") { model.accept(p.id) }
+                                    .buttonStyle(.borderedProminent)
                             }
                         }
                         .padding(.vertical, 4)
                     }
-                    .listStyle(.plain).frame(minHeight: 120, maxHeight: 240)
+                    .listStyle(.plain)
+                    .frame(minHeight: 120, maxHeight: 240)
                 }
 
                 Spacer(minLength: 12)
+
                 #if AWARE_UI_ENABLED
-                Text("Wi-Fi Aware UI enabled").font(.caption).foregroundStyle(.secondary)
+                Text("Wi-Fi Aware UI enabled")
+                    .font(.caption).foregroundStyle(.secondary)
                 #endif
+
                 Text(BeamCore.hello()).foregroundStyle(.secondary)
             }
             .padding()
             .navigationTitle("Host")
-            .task { if !model.started { model.toggle() } } // auto-publish once
+            .task {
+                // Auto-publish once on first appearance
+                if !model.started { model.toggle() }
+            }
             #if AWARE_UI_ENABLED
             .sheet(isPresented: $showAwareSheet) { awarePairSheet() }
             #endif
         }
     }
+}
 
-    // MARK: - Aware UI (Host = Publisher side)
+// MARK: - Aware UI (Host = Publisher side)
 
-    #if AWARE_UI_ENABLED
-    @ViewBuilder private func awarePairButton() -> some View {
-        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
-        if #available(iOS 26.0, *) {
-            Button {
-                showAwareSheet = true
-            } label: {
-                Label("Pair with Viewer (Wi-Fi Aware)", systemImage: "dot.radiowaves.left.and.right")
-            }
-            .buttonStyle(.bordered)
+#if AWARE_UI_ENABLED
+private extension HostRootView {
+    @ViewBuilder
+    func awarePairButton() -> some View {
+        Button {
+            showAwareSheet = true
+        } label: {
+            Label("Pair with Viewer (Wi-Fi Aware)", systemImage: "dot.radiowaves.left.and.right")
         }
-        #endif
+        .buttonStyle(.bordered)
     }
 
-    @ViewBuilder private func awarePairSheet() -> some View {
-        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
-        if #available(iOS 26.0, *),
-           let service = WAPublishableService.allServices[BeamConfig.controlService] {
+    @ViewBuilder
+    func awarePairSheet() -> some View {
+        // ✅ Gate on a *valid* Info.plist shape and fetch the publishable service.
+        if let service = AwareSupport.publishableService(named: BeamConfig.controlService) {
             let devices: WAPublisherListener.Devices = .userSpecifiedDevices
             let provider: ListenerProvider = .wifiAware(
                 .connecting(to: service, from: devices, datapath: .realtime),
                 active: nil
             )
+
             DevicePairingView(provider, access: .default) {
                 Text("Pair Host")
             } fallback: {
@@ -172,15 +198,10 @@ struct HostRootView: View {
             }
             .padding()
         }
-        #endif
     }
-    #endif
 }
+#endif
 
-#Preview { HostRootView() }
-
-private func hasValidAwareConfig(_ service: String) -> Bool {
-    guard let dict = Bundle.main.object(forInfoDictionaryKey: "WiFiAwareServices") as? [String: Any],
-          let serviceCfg = dict[service] as? [String: Any] else { return false }
-    return true // presence + dictionary shape is enough; the system asserts otherwise
+#Preview {
+    HostRootView()
 }
