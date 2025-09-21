@@ -5,17 +5,22 @@
 //  Created by . . on 9/21/25.
 //
 
+//
+//  Logging.swift
+//  BeamCore
+//
+
 import Foundation
 import OSLog
 
-public enum BeamLogLevel: String, Codable {
+public enum BeamLogLevel: String, Codable, Sendable {
     case debug = "DEBUG"
     case info  = "INFO"
     case warn  = "WARN"
     case error = "ERROR"
 }
 
-public struct BeamLogEntry: Identifiable, Equatable, Codable {
+public struct BeamLogEntry: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let ts: Date
     public let level: BeamLogLevel
