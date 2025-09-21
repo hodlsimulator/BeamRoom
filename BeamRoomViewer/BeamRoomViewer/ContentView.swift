@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  BeamRoomHost
+//  BeamRoomViewer
 //
 //  Created by . . on 9/21/25.
 //
