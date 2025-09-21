@@ -6,22 +6,24 @@
 //
 
 import SwiftUI
+import OSLog
 import BeamCore
 
 @main
 struct BeamRoomHostApp: App {
-    @Environment(\.scenePhase) private var scenePhase
-
     init() {
-        BeamLog.info("BeamRoomHost launched")
+        #if AWARE_UI_ENABLED
+        Logger(subsystem: "com.conornolan.BeamRoom", category: "build")
+            .info("AWARE_UI_ENABLED = ON (Host)")
+        #else
+        Logger(subsystem: "com.conornolan.BeamRoom", category: "build")
+            .info("AWARE_UI_ENABLED = OFF (Host)")
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             HostRootView()
-        }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            BeamLog.debug("Scene phase changed: \(String(describing: oldPhase)) → \(String(describing: newPhase))")
         }
     }
 }

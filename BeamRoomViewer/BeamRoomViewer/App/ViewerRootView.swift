@@ -68,7 +68,7 @@ struct ViewerRootView: View {
                     .font(.largeTitle).bold()
                     .multilineTextAlignment(.center)
 
-                // ——— Wi-Fi Aware pairing UI (shown only when AWARE_UI_ENABLED is set)
+                // Wi-Fi Aware pairing UI (shown only when AWARE_UI_ENABLED is set)
                 #if AWARE_UI_ENABLED
                 Group {
                     #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
@@ -135,6 +135,10 @@ struct ViewerRootView: View {
                 }
 
                 Spacer(minLength: 12)
+
+                #if AWARE_UI_ENABLED
+                Text("Wi-Fi Aware UI enabled").font(.caption).foregroundStyle(.secondary)
+                #endif
                 Text(BeamCore.hello()).foregroundStyle(.secondary)
             }
             .padding()

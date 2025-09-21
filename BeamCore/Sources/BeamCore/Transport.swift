@@ -4,10 +4,11 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  M1 — Discovery & pairing (Wi-Fi Aware + Bonjour fallback)
-//  • NWBrowser + NetServiceBrowser in parallel
-//  • NWListener + NetService publish in parallel
-//  • All UI-facing state hops to MainActor
+//  Discovery & pairing
+//  • NWBrowser + NetServiceBrowser in parallel (Bonjour)
+//  • NWListener + NetService publish (Bonjour)
+//  • Optional Wi-Fi Aware UI paths (guarded elsewhere)
+//  • Manual IP connect fallback using a fixed control port
 //
 
 import Foundation
@@ -63,17 +64,15 @@ public struct Heartbeat: Codable, Equatable { public let hb: Int = 1 }
 // MARK: - Helpers
 
 fileprivate enum Frame {
-    static let nl = UInt8(0x0A) // \n
+    static let nl = UInt8(0x0A)
 
     static func encodeLine<T: Encodable>(_ value: T) throws -> Data {
         let data = try JSONEncoder().encode(value)
         var out = Data(capacity: data.count + 1)
-        out.append(data)
-        out.append(nl)
+        out.append(data); out.append(nl)
         return out
     }
 
-    /// Append `incoming`, return all complete newline-delimited frames, keep tail in buffer.
     @discardableResult
     static func drainLines(buffer: inout Data, incoming: Data) -> [Data] {
         buffer.append(incoming)
@@ -116,7 +115,6 @@ public final class BeamBrowser: NSObject, ObservableObject {
     private var aggregate: [String: DiscoveredHost] = [:] // mutated on MainActor
     private let log = Logger(subsystem: BeamConfig.subsystemViewer, category: "browser")
 
-    // Keep references so we can stop them on teardown (no equality/remove needed)
     private var nsServices: [NetService] = []
 
     public override init() { }
@@ -124,13 +122,12 @@ public final class BeamBrowser: NSObject, ObservableObject {
     public func start() throws {
         guard nwBrowser == nil, nsBrowser == nil else { throw BeamError.alreadyRunning }
 
-        // Reset on main
         Task { @MainActor in
             self.aggregate.removeAll()
             self.hosts.removeAll()
         }
 
-        // ---- Path A: NWBrowser (Bonjour over Wi-Fi/Wi-Fi Aware)
+        // Path A: NWBrowser (Bonjour)
         let descriptor = NWBrowser.Descriptor.bonjour(type: BeamConfig.controlService, domain: nil)
         let params = NWParameters()
         params.includePeerToPeer = true
@@ -148,16 +145,13 @@ public final class BeamBrowser: NSObject, ObservableObject {
         nw.browseResultsChangedHandler = { [weak self] results, _ in
             guard let self else { return }
             Task { @MainActor in
-                // Rebuild from scratch to avoid drift
                 var newAgg: [String: DiscoveredHost] = [:]
                 for r in results {
                     let ep = r.endpoint
                     let name: String
                     if case let .service(name: svcName, type: _, domain: _, interface: _) = ep {
                         name = svcName
-                    } else {
-                        name = "Host"
-                    }
+                    } else { name = "Host" }
                     newAgg[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
                 }
                 self.aggregate = newAgg
@@ -168,7 +162,7 @@ public final class BeamBrowser: NSObject, ObservableObject {
         nw.start(queue: .main)
         log.info("NWBrowser started for \(BeamConfig.controlService, privacy: .public)")
 
-        // ---- Path B: NetServiceBrowser fallback (classic Bonjour)
+        // Path B: NetServiceBrowser (Bonjour classic)
         let nsb = NetServiceBrowser()
         #if os(iOS)
         nsb.includesPeerToPeer = true
@@ -185,7 +179,6 @@ public final class BeamBrowser: NSObject, ObservableObject {
 
     public func stop() {
         nwBrowser?.cancel(); nwBrowser = nil
-
         nsBrowser?.stop(); nsBrowser = nil
         for s in nsServices { s.stop() }
         nsServices.removeAll()
@@ -204,7 +197,6 @@ public final class BeamBrowser: NSObject, ObservableObject {
     }
 }
 
-// Allow capturing `self` in @Sendable NWBrowser handlers.
 extension BeamBrowser: @unchecked Sendable {}
 
 extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
@@ -244,7 +236,7 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
     }
 }
 
-// MARK: - Host control server (NWListener + NetService)
+// MARK: - Host control server (NWListener + NetService) with fixed port
 
 public struct PendingPair: Identifiable, Equatable {
     public let id = UUID()
@@ -292,7 +284,11 @@ public final class BeamControlServer: ObservableObject {
         let params = NWParameters.tcp
         params.includePeerToPeer = true
 
-        let l = try NWListener(using: params)
+        guard let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort) else {
+            throw BeamError.connectionFailed("Bad control port")
+        }
+        let l = try NWListener(using: params, on: port)   // ← fixed port
+                // If the port is in use, this throws; that’s fine during dev.
         listener = l
         l.service = NWListener.Service(name: serviceName, type: BeamConfig.controlService)
 
@@ -310,7 +306,7 @@ public final class BeamControlServer: ObservableObject {
                     self.publishedName = serviceName
                     self.publishNetServiceIfNeeded(serviceName: serviceName, listener: l)
                 }
-                self.log.info("Control server ready as \(serviceName, privacy: .public) on \(BeamConfig.controlService, privacy: .public)")
+                self.log.info("Control server ready as \(serviceName, privacy: .public) on \(BeamConfig.controlService, privacy: .public) port \(BeamConfig.controlPort)")
             case .failed(let err):
                 self.log.error("Listener failed: \(err.localizedDescription, privacy: .public)")
                 Task { @MainActor in
@@ -323,8 +319,7 @@ public final class BeamControlServer: ObservableObject {
                     self.isRunning = false; self.publishedName = nil
                     self.netService?.stop(); self.netService = nil
                 }
-            default:
-                break
+            default: break
             }
         }
 
@@ -345,10 +340,10 @@ public final class BeamControlServer: ObservableObject {
 
     private func publishNetServiceIfNeeded(serviceName: String, listener: NWListener) {
         guard netService == nil else { return }
-        let port = listener.port?.rawValue ?? 0
+        let port = Int32(BeamConfig.controlPort)
         let type = BeamConfig.controlService.hasSuffix(".")
             ? BeamConfig.controlService : BeamConfig.controlService + "."
-        let s = NetService(domain: "local.", type: type, name: serviceName, port: Int32(port))
+        let s = NetService(domain: "local.", type: type, name: serviceName, port: port)
         #if os(iOS)
         s.includesPeerToPeer = true
         #endif
@@ -391,14 +386,8 @@ public final class BeamControlServer: ObservableObject {
         removePending(id: id)
     }
 
-    private func removePending(id: UUID) {
-        pendingByID.removeValue(forKey: id)
-        pendingPairs.removeAll { $0.id == id }
-    }
-
-    private func removeSession(id: UUID) {
-        sessions.removeAll { $0.id == id }
-    }
+    private func removePending(id: UUID) { pendingByID.removeValue(forKey: id); pendingPairs.removeAll { $0.id == id } }
+    private func removeSession(id: UUID) { sessions.removeAll { $0.id == id } }
 
     private func handle(newConnection conn: NWConnection) {
         connections.append(conn)
@@ -494,7 +483,7 @@ public final class BeamControlServer: ObservableObject {
     }
 }
 
-// MARK: - Viewer: Control client
+// MARK: - Viewer: Control client (adds manual IP connect)
 
 public enum ClientStatus: Equatable {
     case idle
@@ -514,6 +503,7 @@ public final class BeamControlClient: ObservableObject {
 
     public init() {}
 
+    // Existing: connect via Bonjour endpoint
     public func connect(to host: DiscoveredHost, code: String) {
         disconnect()
         status = .connecting(hostName: host.name, code: code)
@@ -524,14 +514,37 @@ public final class BeamControlClient: ObservableObject {
         let conn = NWConnection(to: host.endpoint, using: params)
         self.connection = conn
 
-        conn.stateUpdateHandler = { [weak self] state in
+        wireStateHandlers(sendCode: code)
+        conn.start(queue: .main)
+    }
+
+    // NEW: manual IP connect (same Wi-Fi fallback)
+    public func connect(ip: String, port: UInt16, code: String) {
+        disconnect()
+        status = .connecting(hostName: ip, code: code)
+
+        let params = NWParameters.tcp
+        params.includePeerToPeer = true   // harmless on Wi-Fi; allows AWDL if present
+
+        guard let p = NWEndpoint.Port(rawValue: port) else {
+            status = .failed("Bad port"); return
+        }
+        let conn = NWConnection(host: NWEndpoint.Host(ip), port: p, using: params)
+        self.connection = conn
+
+        wireStateHandlers(sendCode: code)
+        conn.start(queue: .main)
+    }
+
+    private func wireStateHandlers(sendCode: String) {
+        connection?.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .ready:
                 Task { @MainActor in
                     self.log.debug("Client ready → sending handshake")
-                    self.sendHandshake(code: code)
-                    self.status = .waitingAcceptance(code: code)
+                    self.sendHandshake(code: sendCode)
+                    self.status = .waitingAcceptance(code: sendCode)
                     self.receiveNext()
                     self.startHeartbeats()
                 }
@@ -543,14 +556,11 @@ public final class BeamControlClient: ObservableObject {
                 }
             case .cancelled:
                 Task { @MainActor in
-                    self.log.debug("Client cancelled")
-                    self.status = .idle
+                    self.log.debug("Client cancelled"); self.status = .idle
                 }
             default: break
             }
         }
-
-        conn.start(queue: .main)
     }
 
     public func disconnect() {

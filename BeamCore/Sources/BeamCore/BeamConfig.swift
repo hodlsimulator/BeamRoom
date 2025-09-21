@@ -8,12 +8,14 @@
 import Foundation
 
 public enum BeamConfig {
-    public static let appGroup = "group.com.conornolan.beamroom"
-    public static let mediaService = "_beamroom._udp"
+    // Bonjour / service types
     public static let controlService = "_beamctl._tcp"
+    public static let mediaService   = "_beamroom._udp"
 
-    public static let subsystemBase = "com.conornolan.BeamRoom"
-    public static let subsystemHost = "\(subsystemBase).host"
-    public static let subsystemViewer = "\(subsystemBase).viewer"
-    public static let subsystemExt = "\(subsystemBase).ext"
+    // Fixed TCP port for control channel (manual connect / Wi-Fi fallback)
+    public static let controlPort: UInt16 = 52345
+
+    // Subsystems for OSLog
+    public static let subsystemHost   = "com.conornolan.BeamRoomHost"
+    public static let subsystemViewer = "com.conornolan.BeamRoomViewer"
 }
