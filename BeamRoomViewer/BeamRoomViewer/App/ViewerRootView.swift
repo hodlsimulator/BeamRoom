@@ -15,8 +15,6 @@ import BeamCore
 import DeviceDiscoveryUI
 import WiFiAware
 
-// MARK: - View model
-
 @MainActor
 final class ViewerViewModel: ObservableObject {
     @Published var code: String = BeamControlClient.randomCode()
@@ -31,23 +29,21 @@ final class ViewerViewModel: ObservableObject {
     func startDiscovery() {
         do {
             try browser.start()
-            // If nothing shows after a short while, nudge the user about Local Network perms.
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
                 if self.browser.hosts.isEmpty { self.showPermHint = true }
             }
         } catch {
-            // No-op for now; UI still shows an empty list + hint.
+            BeamLog.error("Discovery start error: \(error.localizedDescription)", tag: "viewer")
         }
     }
 
-    func stopDiscovery() {
-        browser.stop()
-    }
+    func stopDiscovery() { browser.stop() }
 
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
+        BeamLog.info("UI picked host \(host.name)", tag: "viewer")
         client.connect(to: host, code: code)
         showPairSheet = true
     }
@@ -58,10 +54,9 @@ final class ViewerViewModel: ObservableObject {
     }
 }
 
-// MARK: - Root
-
 struct ViewerRootView: View {
     @StateObject private var model = ViewerViewModel()
+    @State private var showLogs = false
 
     var body: some View {
         NavigationStack {
@@ -115,15 +110,25 @@ struct ViewerRootView: View {
             }
             .padding()
             .navigationTitle("Viewer")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showLogs = true
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                }
+            }
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
             .sheet(isPresented: $model.showPairSheet) { PairSheet(model: model) }
             .sheet(isPresented: $model.showAwareSheet) { awarePickSheet() }
+            .sheet(isPresented: $showLogs) { BeamLogView() }
         }
     }
 }
 
-// MARK: - Aware UI (Viewer = Subscriber only)
+// MARK: - Aware UI (Viewer)
 
 private extension ViewerRootView {
     @ViewBuilder
@@ -138,7 +143,6 @@ private extension ViewerRootView {
 
     @ViewBuilder
     func awarePickSheet() -> some View {
-        // Preflight the Info.plist to avoid framework assertion; only then touch `allServices`.
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
             let provider = WASubscriberBrowser.wifiAware(
@@ -149,8 +153,7 @@ private extension ViewerRootView {
             DevicePicker(
                 provider,
                 onSelect: { _ in
-                    // You can resolve the selected peer into a Network.framework connection
-                    // or just continue with Bonjour discovery as we already do.
+                    BeamLog.info("Aware picker selection", tag: "viewer")
                     model.showAwareSheet = false
                 },
                 label: { Text("Pair Viewer") },
@@ -236,6 +239,4 @@ private struct PairSheet: View {
     }
 }
 
-#Preview {
-    ViewerRootView()
-}
+#Preview { ViewerRootView() }

@@ -14,14 +14,6 @@ import BeamCore
 import UIKit
 import Network
 
-// Toggle this at build-time if you want the Aware UI included.
-#if AWARE_UI_ENABLED
-import DeviceDiscoveryUI
-import WiFiAware
-#endif
-
-// MARK: - View model
-
 @MainActor
 final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
@@ -39,6 +31,7 @@ final class HostViewModel: ObservableObject {
                 started = true
             } catch {
                 started = false
+                BeamLog.error("Start error: \(error.localizedDescription)", tag: "host")
             }
         }
     }
@@ -47,13 +40,9 @@ final class HostViewModel: ObservableObject {
     func decline(_ id: UUID) { server.decline(id) }
 }
 
-// MARK: - Root view
-
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
-    #if AWARE_UI_ENABLED
-    @State private var showAwareSheet = false
-    #endif
+    @State private var showLogs = false
 
     var body: some View {
         NavigationStack {
@@ -69,11 +58,6 @@ struct HostRootView: View {
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
                 }
-
-                // Present Aware UI lazily in a sheet (avoids touching WiFiAware at launch)
-                #if AWARE_UI_ENABLED
-                awarePairButton()
-                #endif
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -138,70 +122,25 @@ struct HostRootView: View {
 
                 Spacer(minLength: 12)
 
-                #if AWARE_UI_ENABLED
-                Text("Wi-Fi Aware UI enabled")
-                    .font(.caption).foregroundStyle(.secondary)
-                #endif
-
                 Text(BeamCore.hello()).foregroundStyle(.secondary)
             }
             .padding()
             .navigationTitle("Host")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showLogs = true
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                }
+            }
             .task {
-                // Auto-publish once on first appearance
                 if !model.started { model.toggle() }
             }
-            #if AWARE_UI_ENABLED
-            .sheet(isPresented: $showAwareSheet) { awarePairSheet() }
-            #endif
+            .sheet(isPresented: $showLogs) { BeamLogView() }
         }
     }
 }
 
-// MARK: - Aware UI (Host = Publisher side)
-
-#if AWARE_UI_ENABLED
-private extension HostRootView {
-    @ViewBuilder
-    func awarePairButton() -> some View {
-        Button {
-            showAwareSheet = true
-        } label: {
-            Label("Pair with Viewer (Wi-Fi Aware)", systemImage: "dot.radiowaves.left.and.right")
-        }
-        .buttonStyle(.bordered)
-    }
-
-    @ViewBuilder
-    func awarePairSheet() -> some View {
-        // ✅ Gate on a *valid* Info.plist shape and fetch the publishable service.
-        if let service = AwareSupport.publishableService(named: BeamConfig.controlService) {
-            let devices: WAPublisherListener.Devices = .userSpecifiedDevices
-            let provider: ListenerProvider = .wifiAware(
-                .connecting(to: service, from: devices, datapath: .realtime),
-                active: nil
-            )
-
-            DevicePairingView(provider, access: .default) {
-                Text("Pair Host")
-            } fallback: {
-                VStack(spacing: 12) {
-                    Text("Wi-Fi Aware not available.")
-                    Button("Close") { showAwareSheet = false }
-                }
-                .padding()
-            }
-        } else {
-            VStack(spacing: 12) {
-                Text("Wi-Fi Aware service not available.")
-                Button("Close") { showAwareSheet = false }
-            }
-            .padding()
-        }
-    }
-}
-#endif
-
-#Preview {
-    HostRootView()
-}
+#Preview { HostRootView() }

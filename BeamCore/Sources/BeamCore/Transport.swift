@@ -4,10 +4,7 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  Discovery & pairing
-//  • NWBrowser + NetServiceBrowser in parallel (Bonjour, P2P)
-//  • NWListener + NetService publish (fixed TCP control port)
-//  • JSONL handshake
+//  Discovery & pairing with in-app logging
 //
 
 import Foundation
@@ -120,7 +117,6 @@ public final class BeamBrowser: NSObject, ObservableObject {
     private var nsBrowser: NetServiceBrowser?
     private var nsServices: [NetService] = []
 
-    // Keep an aggregate keyed by endpoint description.
     private var aggregate: [String: DiscoveredHost] = [:]
 
     public override init() { super.init() }
@@ -133,17 +129,21 @@ public final class BeamBrowser: NSObject, ObservableObject {
             self.hosts.removeAll()
         }
 
-        // A) NWBrowser (Bonjour)
+        // A) NWBrowser
         let descriptor = NWBrowser.Descriptor.bonjour(type: BeamConfig.controlService, domain: nil)
         let params = NWParameters()
         params.includePeerToPeer = true
         let nw = NWBrowser(for: descriptor, using: params)
         self.nwBrowser = nw
 
+        BeamLog.info("Browser: start \(BeamConfig.controlService)", tag: "viewer")
+
         nw.stateUpdateHandler = { state in
             browserLog.debug("NWBrowser state: \(String(describing: state))")
+            BeamLog.debug("Browser state=\(String(describing: state))", tag: "viewer")
             if case .failed(let err) = state {
                 browserLog.error("NWBrowser failed: \(err.localizedDescription, privacy: .public)")
+                BeamLog.error("Browser failed: \(err.localizedDescription)", tag: "viewer")
             }
         }
 
@@ -163,13 +163,15 @@ public final class BeamBrowser: NSObject, ObservableObject {
                 }
                 self.aggregate = newAgg
                 self.publishHosts()
+
+                let names = newAgg.values.map { $0.name }.sorted().joined(separator: ", ")
+                BeamLog.info("Browser results: \(names)", tag: "viewer")
             }
         }
 
         nw.start(queue: .main)
-        browserLog.info("NWBrowser started for \(BeamConfig.controlService, privacy: .public)")
 
-        // B) NetServiceBrowser (Bonjour classic)
+        // B) NetServiceBrowser (classic)
         let nsb = NetServiceBrowser()
         nsb.includesPeerToPeer = true
         nsb.delegate = self
@@ -177,7 +179,6 @@ public final class BeamBrowser: NSObject, ObservableObject {
 
         let typeToSearch = BeamConfig.controlService.hasSuffix(".") ? BeamConfig.controlService : BeamConfig.controlService + "."
         nsb.searchForServices(ofType: typeToSearch, inDomain: "local.")
-        browserLog.info("NetServiceBrowser started for \(typeToSearch, privacy: .public)")
     }
 
     public func stop() {
@@ -189,7 +190,7 @@ public final class BeamBrowser: NSObject, ObservableObject {
             self.aggregate.removeAll()
             self.hosts.removeAll()
         }
-        browserLog.info("Discovery stopped")
+        BeamLog.info("Browser: stopped", tag: "viewer")
     }
 
     @MainActor private func publishHosts() {
@@ -229,11 +230,11 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
     }
 
     public func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String : NSNumber]) {
-        browserLog.error("NetServiceBrowser error: \(String(describing: errorDict), privacy: .public)")
+        BeamLog.error("NSBrowser error: \(errorDict)", tag: "viewer")
     }
 }
 
-// MARK: - Host control server (NWListener + NetService) with fixed port
+// MARK: - Host control server
 
 private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "control-server")
 private let bonjourLog = Logger(subsystem: BeamConfig.subsystemHost, category: "bonjour")
@@ -290,21 +291,24 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         l.stateUpdateHandler = { state in
             serverLog.debug("Listener state: \(String(describing: state))")
+            BeamLog.debug("Host listener state=\(String(describing: state))", tag: "host")
             if case .failed(let err) = state {
                 serverLog.error("Listener failed: \(err.localizedDescription, privacy: .public)")
+                BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
             }
         }
 
         l.newConnectionHandler = { [weak self] conn in
             guard let self else { return }
             Task { @MainActor in
+                let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
+                BeamLog.info("Incoming control connection from \(remote)", tag: "host")
                 self.handleIncoming(conn)
             }
         }
 
         l.start(queue: .main)
 
-        // Bonjour advertise on the same fixed port
         let type = BeamConfig.controlService.hasSuffix(".") ? BeamConfig.controlService : BeamConfig.controlService + "."
         let ns = NetService(domain: "local.", type: type, name: serviceName, port: Int32(BeamConfig.controlPort))
         ns.includesPeerToPeer = true
@@ -315,6 +319,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         self.isRunning = true
         serverLog.info("Control server started on \(BeamConfig.controlPort), bonjour '\(serviceName)'")
+        BeamLog.info("Host advertising '\(serviceName)' \(BeamConfig.controlService) on \(BeamConfig.controlPort)", tag: "host")
     }
 
     @MainActor
@@ -332,6 +337,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         publishedName = nil
         isRunning = false
         serverLog.info("Control server stopped")
+        BeamLog.info("Host stopped", tag: "host")
     }
 
     @MainActor
@@ -342,6 +348,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
         sendResponse(resp, over: p.connection)
         sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: p.remoteDescription))
+        BeamLog.info("Accepted code \(p.code) → session \(sid)", tag: "host")
     }
 
     @MainActor
@@ -350,6 +357,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         pendingPairs.removeAll { $0.id == id }
         let resp = HandshakeResponse(ok: false, sessionID: nil, udpPort: nil, message: "Declined")
         sendResponse(resp, over: p.connection)
+        BeamLog.warn("Declined code \(p.code) from \(p.remoteDescription)", tag: "host")
         p.connection.cancel()
     }
 
@@ -361,8 +369,10 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         conn.stateUpdateHandler = { state in
             serverLog.debug("Incoming conn state: \(String(describing: state))")
+            BeamLog.debug("Host conn state=\(String(describing: state))", tag: "host")
             if case .failed(let err) = state {
                 serverLog.error("Incoming failed: \(err.localizedDescription, privacy: .public)")
+                BeamLog.error("Host conn failed: \(err.localizedDescription)", tag: "host")
             }
         }
 
@@ -386,6 +396,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
             if isEOF || error != nil {
                 Task { @MainActor in
                     self.rxBuffers.removeValue(forKey: key)
+                    BeamLog.warn("Host conn closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
                     conn.cancel()
                     self.connections.removeAll { $0 === conn }
                 }
@@ -403,9 +414,11 @@ public final class BeamControlServer: NSObject, ObservableObject {
             pendingByID[p.id] = p
             pendingPairs.append(p)
             serverLog.info("Pending pair from \(remote, privacy: .public) code \(req.code, privacy: .public)")
+            BeamLog.info("Received handshake code \(req.code) from \(remote)", tag: "host")
             return
         }
         serverLog.error("Invalid line on control connection")
+        BeamLog.error("Host received invalid frame", tag: "host")
     }
 
     @MainActor
@@ -416,6 +429,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
             if !resp.ok { conn.cancel() }
         } catch {
             serverLog.error("Failed to encode response: \(error.localizedDescription, privacy: .public)")
+            BeamLog.error("Host send response failed: \(error.localizedDescription)", tag: "host")
         }
     }
 }
@@ -423,9 +437,11 @@ public final class BeamControlServer: NSObject, ObservableObject {
 extension BeamControlServer: NetServiceDelegate {
     public func netServiceDidPublish(_ sender: NetService) {
         bonjourLog.info("Published \(sender.name, privacy: .public)")
+        BeamLog.info("Bonjour published: \(sender.name)", tag: "host")
     }
     public func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
         bonjourLog.error("Publish error: \(String(describing: errorDict), privacy: .public)")
+        BeamLog.error("Bonjour publish error: \(errorDict)", tag: "host")
     }
 }
 
@@ -456,9 +472,9 @@ public final class BeamControlClient: ObservableObject {
     public func connect(to host: DiscoveredHost, code: String) {
         disconnect()
 
-        // Capture only sendable values to keep the state handler clean.
         let hostName = host.name
         let remoteDesc = host.endpoint.debugDescription
+        BeamLog.info("Connecting to \(hostName) @ \(remoteDesc) with code \(code)", tag: "viewer")
 
         let params = NWParameters.tcp
         params.includePeerToPeer = true
@@ -475,24 +491,27 @@ public final class BeamControlClient: ObservableObject {
             switch state {
             case .ready:
                 clientLog.info("Control ready to \(hostName, privacy: .public)")
+                BeamLog.info("Control ready → sending handshake", tag: "viewer")
                 Task { @MainActor in
                     self.sendHandshake(code: code)
                     self.receiveLoop()
                 }
             case .failed(let err):
+                BeamLog.error("Control failed: \(err.localizedDescription)", tag: "viewer")
                 Task { @MainActor in
                     self.status = .failed(reason: err.localizedDescription)
                     self.connection?.cancel()
                     self.connection = nil
                 }
             case .cancelled:
+                BeamLog.warn("Control cancelled", tag: "viewer")
                 Task { @MainActor in
                     if case .failed = self.status { /* keep failed */ } else {
                         self.status = .idle
                     }
                 }
             default:
-                break
+                BeamLog.debug("Control state=\(String(describing: state))", tag: "viewer")
             }
         }
 
@@ -506,6 +525,7 @@ public final class BeamControlClient: ObservableObject {
         Task { @MainActor in
             self.status = .idle
         }
+        BeamLog.info("Disconnected", tag: "viewer")
     }
 
     @MainActor
@@ -516,9 +536,11 @@ public final class BeamControlClient: ObservableObject {
             let bytes = try Frame.encodeLine(req)
             status = .waitingAcceptance
             conn.send(content: bytes, completion: .contentProcessed { _ in })
+            BeamLog.info("Handshake sent (code \(code))", tag: "viewer")
         } catch {
             status = .failed(reason: "Encode failed")
             conn.cancel()
+            BeamLog.error("Failed to encode handshake: \(error.localizedDescription)", tag: "viewer")
         }
     }
 
@@ -543,6 +565,7 @@ public final class BeamControlClient: ObservableObject {
                     self.connection?.cancel()
                     self.connection = nil
                 }
+                BeamLog.warn("Connection closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "viewer")
                 return
             }
             self.receiveLoop()
@@ -554,17 +577,20 @@ public final class BeamControlClient: ObservableObject {
             Task { @MainActor in
                 if resp.ok, let sid = resp.sessionID {
                     self.status = .paired(session: sid, udpPort: resp.udpPort)
+                    BeamLog.info("Paired ✓ session=\(sid)", tag: "viewer")
                 } else {
-                    self.status = .failed(reason: resp.message ?? "Rejected")
+                    let reason = resp.message ?? "Rejected"
+                    self.status = .failed(reason: reason)
+                    BeamLog.warn("Pairing rejected: \(reason)", tag: "viewer")
                 }
             }
             return
         }
-        clientLog.error("Invalid response frame")
+        BeamLog.error("Viewer received invalid response frame", tag: "viewer")
     }
 }
 
-// MARK: - Sendable shims for @Sendable handlers
+// MARK: - Sendable shims
 
 extension BeamBrowser: @unchecked Sendable {}
 extension BeamControlServer: @unchecked Sendable {}
