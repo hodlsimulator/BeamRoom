@@ -21,6 +21,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
 
+    <!-- ReplayKit Upload Extension -->
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>
@@ -29,6 +30,11 @@
         <string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
     </dict>
 
+    <!-- REQUIRED by App Store validation for ReplayKit upload extensions -->
+    <key>RPBroadcastProcessMode</key>
+    <string>RPBroadcastProcessModeSampleBuffer</string>
+
+    <!-- Local networking + discovery (Bonjour + Wi-Fi Aware) -->
     <key>NSLocalNetworkUsageDescription</key>
     <string>BeamRoom uses the local network to deliver the live stream to nearby devices.</string>
     <key>NSBonjourServices</key>
@@ -36,20 +42,12 @@
         <string>_beamroom._udp</string>
         <string>_beamctl._tcp</string>
     </array>
-
-    <!-- If the extension transmits directly, publish the services here too -->
     <key>WiFiAwareServices</key>
     <dict>
         <key>_beamroom._udp</key>
-        <dict>
-            <key>Publishable</key>
-            <true/>
-        </dict>
+        <string>Publishable</string>
         <key>_beamctl._tcp</key>
-        <dict>
-            <key>Publishable</key>
-            <true/>
-        </dict>
+        <string>Publishable</string>
     </dict>
 </dict>
 </plist>

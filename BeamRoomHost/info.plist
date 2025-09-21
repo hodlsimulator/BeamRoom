@@ -21,6 +21,7 @@
     <key>LSRequiresIPhoneOS</key>
     <true/>
 
+    <!-- Local networking + discovery (Bonjour + Wi-Fi Aware) -->
     <key>NSLocalNetworkUsageDescription</key>
     <string>BeamRoom uses the local network to discover and connect to nearby devices for screen sharing.</string>
     <key>NSBonjourServices</key>
@@ -28,22 +29,15 @@
         <string>_beamroom._udp</string>
         <string>_beamctl._tcp</string>
     </array>
-
-    <!-- Wi-Fi Aware: publish the media/control services from the Host -->
     <key>WiFiAwareServices</key>
     <dict>
         <key>_beamroom._udp</key>
-        <dict>
-            <key>Publishable</key>
-            <true/>
-        </dict>
+        <string>Publishable</string>
         <key>_beamctl._tcp</key>
-        <dict>
-            <key>Publishable</key>
-            <true/>
-        </dict>
+        <string>Publishable</string>
     </dict>
 
+    <!-- Orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
