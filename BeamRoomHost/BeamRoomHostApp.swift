@@ -18,7 +18,7 @@ struct BeamRoomHostApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            HostRootView()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             BeamLog.debug("Scene phase changed: \(String(describing: oldPhase)) → \(String(describing: newPhase))")

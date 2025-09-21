@@ -55,17 +55,9 @@
 		E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomHost" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				App/HostRootView.swift,
 				info.plist,
 			);
 			target = E13AEDD02E7F73D100331955 /* BeamRoomHost */;
-		};
-		E184429E2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomBroadcastUpload" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				App/HostRootView.swift,
-			);
-			target = E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -74,7 +66,6 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomHost" target */,
-				E184429E2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomBroadcastUpload" target */,
 			);
 			path = BeamRoomHost;
 			sourceTree = "<group>";
