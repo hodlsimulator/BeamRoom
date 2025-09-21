@@ -17,9 +17,22 @@
 		E13AEE182E7F895000331955 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E18442AC2E7FAEFF00BEB38B /* Exceptions for "BeamRoomViewer" folder in "BeamRoomViewer" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				App/info.plist,
+			);
+			target = E13AEDF32E7F7D1D00331955 /* BeamRoomViewer */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E13AEDF62E7F7D1D00331955 /* BeamRoomViewer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E18442AC2E7FAEFF00BEB38B /* Exceptions for "BeamRoomViewer" folder in "BeamRoomViewer" target */,
+			);
 			path = BeamRoomViewer;
 			sourceTree = "<group>";
 		};
