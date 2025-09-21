@@ -31,8 +31,13 @@ public struct BeamLogView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("Debug Log").font(.headline)
+            Text("Debug Log")
+                .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+
             Spacer()
+
             Toggle("Auto-scroll", isOn: $autoScroll)
                 .toggleStyle(.switch)
                 .labelsHidden()
@@ -41,6 +46,9 @@ public struct BeamLogView: View {
                 UIPasteboard.general.string = log.dumpText()
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
             .buttonStyle(.bordered)
 
@@ -49,6 +57,9 @@ public struct BeamLogView: View {
                 showShare = true
             } label: {
                 Label("Share", systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
             .buttonStyle(.bordered)
 
@@ -56,6 +67,9 @@ public struct BeamLogView: View {
                 BeamInAppLog.shared.clear()
             } label: {
                 Label("Clear", systemImage: "trash")
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
             .buttonStyle(.bordered)
         }

@@ -57,6 +57,8 @@ struct HostRootView: View {
 
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -69,6 +71,7 @@ struct HostRootView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                     }
 
                     if !model.server.sessions.isEmpty {
@@ -78,8 +81,11 @@ struct HostRootView: View {
                                 VStack(alignment: .leading) {
                                     Text(s.id.uuidString)
                                         .font(.footnote).monospaced()
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
                                     Text(s.remoteDescription)
                                         .font(.caption2).foregroundStyle(.secondary)
+                                        .lineLimit(1)
                                 }
                                 Spacer()
                                 Text(s.startedAt, style: .time)
@@ -103,15 +109,21 @@ struct HostRootView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Code: \(p.code)")
                                     .font(.title2).bold().monospaced()
-                                Text(p.remoteDescription)
+                                    .lineLimit(1)
+                                Text("conn#\(p.connID) • \(p.remoteDescription)")
                                     .font(.caption2).foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
                             Spacer()
                             HStack(spacing: 8) {
                                 Button("Decline") { model.decline(p.id) }
                                     .buttonStyle(.bordered)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.9)
                                 Button("Accept") { model.accept(p.id) }
                                     .buttonStyle(.borderedProminent)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.9)
                             }
                         }
                         .padding(.vertical, 4)
@@ -122,7 +134,9 @@ struct HostRootView: View {
 
                 Spacer(minLength: 12)
 
-                Text(BeamCore.hello()).foregroundStyle(.secondary)
+                Text(BeamCore.hello())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .padding()
             .navigationTitle("Host")
@@ -133,6 +147,7 @@ struct HostRootView: View {
                     } label: {
                         Image(systemName: "doc.text.magnifyingglass")
                     }
+                    .lineLimit(1)
                 }
             }
             .task {

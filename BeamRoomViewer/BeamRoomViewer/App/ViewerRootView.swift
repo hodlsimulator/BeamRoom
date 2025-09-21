@@ -72,12 +72,17 @@ struct ViewerRootView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                         Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
                             .font(.footnote)
-                        Spacer()
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.9)
+                        Spacer(minLength: 6)
                         Button("Open Settings") {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
                             }
                         }
+                        .buttonStyle(.bordered)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                     }
                     .padding(10)
                     .background(.yellow.opacity(0.2))
@@ -95,8 +100,11 @@ struct ViewerRootView: View {
                             HStack {
                                 Image(systemName: "dot.radiowaves.left.and.right")
                                 Text(host.name)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.9)
                                 Spacer()
-                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -106,7 +114,9 @@ struct ViewerRootView: View {
 
                 Spacer(minLength: 12)
 
-                Text(BeamCore.hello()).foregroundStyle(.secondary)
+                Text(BeamCore.hello())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .padding()
             .navigationTitle("Viewer")
@@ -117,6 +127,7 @@ struct ViewerRootView: View {
                     } label: {
                         Image(systemName: "doc.text.magnifyingglass")
                     }
+                    .lineLimit(1)
                 }
             }
             .task { model.startDiscovery() }
@@ -128,8 +139,6 @@ struct ViewerRootView: View {
     }
 }
 
-// MARK: - Aware UI (Viewer)
-
 private extension ViewerRootView {
     @ViewBuilder
     func awarePickButton() -> some View {
@@ -137,6 +146,9 @@ private extension ViewerRootView {
             model.showAwareSheet = true
         } label: {
             Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
         }
         .buttonStyle(.bordered)
     }
@@ -161,6 +173,8 @@ private extension ViewerRootView {
                     VStack(spacing: 12) {
                         Text("Wi-Fi Aware not available.")
                         Button("Close") { model.showAwareSheet = false }
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .padding()
                 }
@@ -169,13 +183,13 @@ private extension ViewerRootView {
             VStack(spacing: 12) {
                 Text("Wi-Fi Aware service not available.")
                 Button("Close") { model.showAwareSheet = false }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
             .padding()
         }
     }
 }
-
-// MARK: - Pair sheet
 
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
@@ -189,6 +203,7 @@ private struct PairSheet: View {
                         .font(.title3).bold()
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                 }
 
                 Text("Your code")
@@ -205,19 +220,28 @@ private struct PairSheet: View {
                 case .connecting(let hostName, _):
                     Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 case .waitingAcceptance:
                     Label("Waiting for Host to accept…", systemImage: "hourglass")
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 case .paired(let sid, _):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
+                        .lineLimit(1)
                     Text("Session: \(sid.uuidString)")
                         .font(.footnote)
                         .monospaced()
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 case .failed(let reason):
                     Label("Failed: \(reason)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                 }
 
                 Spacer()
@@ -225,10 +249,14 @@ private struct PairSheet: View {
                 HStack {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
 
                     if case .paired = model.client.status {
                         Button("Done") { model.showPairSheet = false }
                             .buttonStyle(.borderedProminent)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                 }
             }
