@@ -15,11 +15,12 @@ public enum BeamConfig {
     // Fixed TCP control port
     public static let controlPort: UInt16 = 52345
 
-    // OSLog subsystems
+    // OSLog subsystems (one per target)
     public static let subsystemHost   = "com.conornolan.BeamRoomHost"
     public static let subsystemViewer = "com.conornolan.BeamRoomViewer"
+    public static let subsystemExt    = "com.conornolan.BeamRoomBroadcastUpload"
 
-    // ✅ Temporary: auto-accept incoming pairing on Host to prove the path end-to-end.
-    // Turn this off when you want manual Accept/Decline again.
+    // Temporary test switch: auto-accept pairing on Host to prove end-to-end.
+    // Set to false to restore manual Accept/Decline.
     public static let autoAcceptDuringTest = true
 }
