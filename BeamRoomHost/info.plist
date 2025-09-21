@@ -58,9 +58,15 @@
 	<key>WiFiAwareServices</key>
 	<dict>
 		<key>_beamctl._tcp</key>
-		<string>Publishable</string>
+		<dict>
+			<key>Publishable</key>
+			<true/>
+		</dict>
 		<key>_beamroom._udp</key>
-		<string>Publishable</string>
+		<dict>
+			<key>Publishable</key>
+			<true/>
+		</dict>
 	</dict>
 </dict>
 </plist>
