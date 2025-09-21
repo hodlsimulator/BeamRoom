@@ -12,6 +12,16 @@ import SwiftUI
 import Combine
 import BeamCore
 import UIKit
+import Network
+
+#if AWARE_UI_ENABLED
+#if canImport(DeviceDiscoveryUI)
+import DeviceDiscoveryUI
+#endif
+#if canImport(WiFiAware)
+import WiFiAware
+#endif
+#endif
 
 @MainActor
 final class HostViewModel: ObservableObject {
@@ -39,7 +49,9 @@ struct HostRootView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                Text("BeamRoom — Host").font(.largeTitle).bold().multilineTextAlignment(.center)
+                Text("BeamRoom — Host")
+                    .font(.largeTitle).bold()
+                    .multilineTextAlignment(.center)
 
                 HStack {
                     TextField("Service Name", text: $model.serviceName)
@@ -47,6 +59,27 @@ struct HostRootView: View {
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
                 }
+
+                // ——— Wi-Fi Aware pairing UI (shown only when AWARE_UI_ENABLED is set)
+                #if AWARE_UI_ENABLED
+                Group {
+                    #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
+                    if #available(iOS 26.0, *),
+                       let service = WAPublishableService.allServices["_beamctl._tcp"] {
+                        let devices: WAPublisherListener.Devices = .userSpecifiedDevices
+                        let listenerProvider: ListenerProvider = .wifiAware(
+                            .connecting(to: service, from: devices, datapath: .realtime),
+                            active: nil
+                        )
+                        DevicePairingView(listenerProvider, access: .default) {
+                            Label("Pair with Viewer (Wi-Fi Aware)", systemImage: "dot.radiowaves.left.and.right")
+                        } fallback: {
+                            EmptyView()
+                        }
+                    }
+                    #endif
+                }
+                #endif
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {

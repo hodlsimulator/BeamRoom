@@ -12,23 +12,38 @@ import SwiftUI
 import Combine
 import BeamCore
 import Network
+import UIKit
+
+#if AWARE_UI_ENABLED
+#if canImport(DeviceDiscoveryUI)
+import DeviceDiscoveryUI
+#endif
+#if canImport(WiFiAware)
+import WiFiAware
+#endif
+#endif
 
 @MainActor
 final class ViewerViewModel: ObservableObject {
     @Published var code: String = BeamControlClient.randomCode()
     @Published var selectedHost: DiscoveredHost?
     @Published var showPairSheet: Bool = false
+    @Published var showPermHint: Bool = false
 
     let browser = BeamBrowser()
     let client = BeamControlClient()
 
     func startDiscovery() {
-        do { try browser.start() } catch { }
+        do {
+            try browser.start()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if self.browser.hosts.isEmpty { self.showPermHint = true }
+            }
+        } catch { }
     }
 
-    func stopDiscovery() {
-        browser.stop()
-    }
+    func stopDiscovery() { browser.stop() }
 
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
@@ -53,23 +68,65 @@ struct ViewerRootView: View {
                     .font(.largeTitle).bold()
                     .multilineTextAlignment(.center)
 
+                // ——— Wi-Fi Aware pairing UI (shown only when AWARE_UI_ENABLED is set)
+                #if AWARE_UI_ENABLED
+                Group {
+                    #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
+                    if #available(iOS 26.0, *),
+                       let service = WASubscribableService.allServices["_beamctl._tcp"] {
+                        let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
+                        let browserProvider = WASubscriberBrowser.wifiAware(
+                            .connecting(to: devices, from: service),
+                            active: nil
+                        )
+                        DevicePicker(browserProvider, onSelect: { endpoint in
+                            // Paired and got an endpoint; your existing flow can still use Bonjour/NW.
+                            print("Paired endpoint: \(endpoint)")
+                        }, label: {
+                            Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
+                        }, fallback: {
+                            EmptyView()
+                        }, parameters: {
+                            let p = NWParameters.applicationService
+                            p.serviceClass = .interactiveVideo
+                            p.wifiAware = .realtime
+                            return p
+                        })
+                    }
+                    #endif
+                }
+                #endif
+
+                if model.showPermHint && model.browser.hosts.isEmpty {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
+                            .font(.footnote)
+                        Spacer()
+                        Button("Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(.yellow.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
                 if model.browser.hosts.isEmpty {
                     VStack(spacing: 8) {
-                        Text("Discovering nearby Hosts…")
-                            .font(.headline)
+                        Text("Discovering nearby Hosts…").font(.headline)
                         ProgressView()
                     }
                 } else {
                     List(model.browser.hosts) { host in
-                        Button {
-                            model.pick(host)
-                        } label: {
+                        Button { model.pick(host) } label: {
                             HStack {
                                 Image(systemName: "dot.radiowaves.left.and.right")
                                 Text(host.name)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.secondary)
+                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -78,37 +135,30 @@ struct ViewerRootView: View {
                 }
 
                 Spacer(minLength: 12)
-                Text(BeamCore.hello())
-                    .foregroundStyle(.secondary)
+                Text(BeamCore.hello()).foregroundStyle(.secondary)
             }
             .padding()
             .navigationTitle("Viewer")
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
-            .sheet(isPresented: $model.showPairSheet) {
-                PairSheet(model: model)
-            }
+            .sheet(isPresented: $model.showPairSheet) { PairSheet(model: model) }
         }
     }
 }
 
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 if let host = model.selectedHost {
-                    Text("Pairing with")
-                        .font(.headline)
+                    Text("Pairing with").font(.headline)
                     Text(host.name)
                         .font(.title3).bold()
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                 }
-                Text("Your code")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Your code").font(.caption).foregroundStyle(.secondary)
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .monospacedDigit()
@@ -125,22 +175,17 @@ private struct PairSheet: View {
                 case .paired(let sid, _):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
-                    Text("Session: \(sid.uuidString)")
-                        .font(.footnote).monospaced()
-                        .foregroundStyle(.secondary)
+                    Text("Session: \(sid.uuidString)").font(.footnote).monospaced().foregroundStyle(.secondary)
                 case .failed(let reason):
                     Label("Failed: \(reason)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
                 }
 
                 Spacer()
-
                 HStack {
-                    Button("Cancel") { model.cancelPairing() }
-                        .buttonStyle(.bordered)
+                    Button("Cancel") { model.cancelPairing() }.buttonStyle(.bordered)
                     if case .paired = model.client.status {
-                        Button("Done") { model.showPairSheet = false }
-                            .buttonStyle(.borderedProminent)
+                        Button("Done") { model.showPairSheet = false }.buttonStyle(.borderedProminent)
                     }
                 }
             }
@@ -151,6 +196,4 @@ private struct PairSheet: View {
     }
 }
 
-#Preview {
-    ViewerRootView()
-}
+#Preview { ViewerRootView() }
