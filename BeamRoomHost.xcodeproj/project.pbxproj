@@ -172,6 +172,7 @@
 				E13AEE3D2E7F942100331955 /* Sources */,
 				E13AEE3E2E7F942100331955 /* Frameworks */,
 				E13AEE3F2E7F942100331955 /* Resources */,
+				E1CE61392E7FFF4500BD003E /* Assert RPBroadcastProcessMode + NSExtension */,
 			);
 			buildRules = (
 			);
@@ -245,6 +246,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E1CE61392E7FFF4500BD003E /* Assert RPBroadcastProcessMode + NSExtension */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Assert RPBroadcastProcessMode + NSExtension";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nPLIST=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Info.plist\"\n\n# Ensure correct extension identity\n/usr/libexec/PlistBuddy -c 'Add :NSExtension dict' \"$PLIST\" 2>/dev/null || true\n/usr/libexec/PlistBuddy -c 'Set :NSExtension:NSExtensionPointIdentifier com.apple.broadcast-services-upload' \"$PLIST\"\n/usr/libexec/PlistBuddy -c \"Set :NSExtension:NSExtensionPrincipalClass ${PRODUCT_MODULE_NAME}.SampleHandler\" \"$PLIST\"\n\n# Force required process mode (use MP4Clip only if you subclass RPBroadcastMP4ClipHandler)\n/usr/libexec/PlistBuddy -c 'Add :RPBroadcastProcessMode string RPBroadcastProcessModeSampleBuffer' \"$PLIST\" 2>/dev/null || \\\n/usr/libexec/PlistBuddy -c 'Set :RPBroadcastProcessMode RPBroadcastProcessModeSampleBuffer' \"$PLIST\"\n\n# Hard fail if missing\n/usr/libexec/PlistBuddy -c 'Print :RPBroadcastProcessMode' \"$PLIST\" >/dev/null 2>&1 || {\n  echo \"❌ RPBroadcastProcessMode missing from upload appex Info.plist\"\n  exit 1\n}\necho \"✅ Upload appex Info.plist OK\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E13AEDCD2E7F73D100331955 /* Sources */ = {
@@ -468,7 +490,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BeamRoomBroadcastUpload;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -497,7 +519,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BeamRoomBroadcastUpload;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
