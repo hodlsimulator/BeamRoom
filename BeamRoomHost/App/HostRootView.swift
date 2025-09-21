@@ -45,6 +45,9 @@ final class HostViewModel: ObservableObject {
 
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
+    #if AWARE_UI_ENABLED
+    @State private var showAwareSheet = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -60,25 +63,9 @@ struct HostRootView: View {
                         .buttonStyle(.borderedProminent)
                 }
 
-                // Wi-Fi Aware pairing UI (shown only when AWARE_UI_ENABLED is set)
+                // Present Aware UI lazily in a sheet (avoids touching WiFiAware at launch)
                 #if AWARE_UI_ENABLED
-                Group {
-                    #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
-                    if #available(iOS 26.0, *),
-                       let service = WAPublishableService.allServices["_beamctl._tcp"] {
-                        let devices: WAPublisherListener.Devices = .userSpecifiedDevices
-                        let listenerProvider: ListenerProvider = .wifiAware(
-                            .connecting(to: service, from: devices, datapath: .realtime),
-                            active: nil
-                        )
-                        DevicePairingView(listenerProvider, access: .default) {
-                            Label("Pair with Viewer (Wi-Fi Aware)", systemImage: "dot.radiowaves.left.and.right")
-                        } fallback: {
-                            EmptyView()
-                        }
-                    }
-                    #endif
-                }
+                awarePairButton()
                 #endif
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -130,7 +117,6 @@ struct HostRootView: View {
                 }
 
                 Spacer(minLength: 12)
-
                 #if AWARE_UI_ENABLED
                 Text("Wi-Fi Aware UI enabled").font(.caption).foregroundStyle(.secondary)
                 #endif
@@ -139,8 +125,56 @@ struct HostRootView: View {
             .padding()
             .navigationTitle("Host")
             .task { if !model.started { model.toggle() } } // auto-publish once
+            #if AWARE_UI_ENABLED
+            .sheet(isPresented: $showAwareSheet) { awarePairSheet() }
+            #endif
         }
     }
+
+    // MARK: - Aware UI (Host = Publisher side)
+
+    #if AWARE_UI_ENABLED
+    @ViewBuilder private func awarePairButton() -> some View {
+        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
+        if #available(iOS 26.0, *) {
+            Button {
+                showAwareSheet = true
+            } label: {
+                Label("Pair with Viewer (Wi-Fi Aware)", systemImage: "dot.radiowaves.left.and.right")
+            }
+            .buttonStyle(.bordered)
+        }
+        #endif
+    }
+
+    @ViewBuilder private func awarePairSheet() -> some View {
+        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
+        if #available(iOS 26.0, *),
+           let service = WAPublishableService.allServices[BeamConfig.controlService] {
+            let devices: WAPublisherListener.Devices = .userSpecifiedDevices
+            let provider: ListenerProvider = .wifiAware(
+                .connecting(to: service, from: devices, datapath: .realtime),
+                active: nil
+            )
+            DevicePairingView(provider, access: .default) {
+                Text("Pair Host")
+            } fallback: {
+                VStack(spacing: 12) {
+                    Text("Wi-Fi Aware not available.")
+                    Button("Close") { showAwareSheet = false }
+                }
+                .padding()
+            }
+        } else {
+            VStack(spacing: 12) {
+                Text("Wi-Fi Aware service not available.")
+                Button("Close") { showAwareSheet = false }
+            }
+            .padding()
+        }
+        #endif
+    }
+    #endif
 }
 
 #Preview { HostRootView() }

@@ -30,6 +30,10 @@ final class ViewerViewModel: ObservableObject {
     @Published var showPairSheet: Bool = false
     @Published var showPermHint: Bool = false
 
+    #if AWARE_UI_ENABLED
+    @Published var showAwareSheet: Bool = false
+    #endif
+
     let browser = BeamBrowser()
     let client = BeamControlClient()
 
@@ -68,33 +72,9 @@ struct ViewerRootView: View {
                     .font(.largeTitle).bold()
                     .multilineTextAlignment(.center)
 
-                // Wi-Fi Aware pairing UI (shown only when AWARE_UI_ENABLED is set)
+                // Wi-Fi Aware pairing UI is presented in a sheet to avoid early initialisation.
                 #if AWARE_UI_ENABLED
-                Group {
-                    #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
-                    if #available(iOS 26.0, *),
-                       let service = WASubscribableService.allServices["_beamctl._tcp"] {
-                        let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
-                        let browserProvider = WASubscriberBrowser.wifiAware(
-                            .connecting(to: devices, from: service),
-                            active: nil
-                        )
-                        DevicePicker(browserProvider, onSelect: { endpoint in
-                            // Paired and got an endpoint; your existing flow can still use Bonjour/NW.
-                            print("Paired endpoint: \(endpoint)")
-                        }, label: {
-                            Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
-                        }, fallback: {
-                            EmptyView()
-                        }, parameters: {
-                            let p = NWParameters.applicationService
-                            p.serviceClass = .interactiveVideo
-                            p.wifiAware = .realtime
-                            return p
-                        })
-                    }
-                    #endif
-                }
+                awarePickButton()
                 #endif
 
                 if model.showPermHint && model.browser.hosts.isEmpty {
@@ -146,8 +126,59 @@ struct ViewerRootView: View {
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
             .sheet(isPresented: $model.showPairSheet) { PairSheet(model: model) }
+            #if AWARE_UI_ENABLED
+            .sheet(isPresented: $model.showAwareSheet) { awarePickSheet() }
+            #endif
         }
     }
+
+    // MARK: - Aware UI (Viewer = Subscriber only)
+
+    #if AWARE_UI_ENABLED
+    @ViewBuilder private func awarePickButton() -> some View {
+        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
+        if #available(iOS 26.0, *) {
+            Button {
+                model.showAwareSheet = true
+            } label: {
+                Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
+            }
+            .buttonStyle(.bordered)
+        }
+        #endif
+    }
+
+    @ViewBuilder private func awarePickSheet() -> some View {
+        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
+        if #available(iOS 26.0, *),
+           // Viewer must read *subscriber* services only:
+           let service = WASubscribableService.allServices[BeamConfig.controlService] {
+            let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
+            let provider = WASubscriberBrowser.wifiAware(
+                .connecting(to: devices, from: service),
+                active: nil
+            )
+            DevicePicker(provider, onSelect: { _ in
+                // Paired and got an endpoint; your existing flow can continue via Network/Bonjour.
+            }, label: {
+                Text("Pair Viewer")
+            }, fallback: {
+                VStack(spacing: 12) {
+                    Text("Wi-Fi Aware not available.")
+                    Button("Close") { model.showAwareSheet = false }
+                }
+                .padding()
+            })
+        } else {
+            VStack(spacing: 12) {
+                Text("Wi-Fi Aware service not available.")
+                Button("Close") { model.showAwareSheet = false }
+            }
+            .padding()
+        }
+        #endif
+    }
+    #endif
 }
 
 private struct PairSheet: View {
