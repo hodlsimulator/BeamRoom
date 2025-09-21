@@ -6,7 +6,5 @@
     <array>
         <string>group.com.conornolan.beamroom</string>
     </array>
-    <key>com.apple.developer.wifi-aware</key>
-    <true/>
 </dict>
 </plist>
