@@ -52,11 +52,29 @@
 			);
 			target = E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */;
 		};
+		E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomHost" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				App/HostRootView.swift,
+			);
+			target = E13AEDD02E7F73D100331955 /* BeamRoomHost */;
+		};
+		E184429E2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomBroadcastUpload" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				App/HostRootView.swift,
+			);
+			target = E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E13AEDD32E7F73D100331955 /* BeamRoomHost */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomHost" target */,
+				E184429E2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomBroadcastUpload" target */,
+			);
 			path = BeamRoomHost;
 			sourceTree = "<group>";
 		};
@@ -394,6 +412,7 @@
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -427,6 +446,7 @@
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

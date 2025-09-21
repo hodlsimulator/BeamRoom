@@ -6,39 +6,38 @@
 //
 
 import ReplayKit
+import OSLog
+import BeamCore
+import CoreMedia
 
-class SampleHandler: RPBroadcastSampleHandler {
+final class SampleHandler: RPBroadcastSampleHandler {
+
+    private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "upload")
 
     override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
-        // User has requested to start the broadcast. Setup info from the UI extension can be supplied but optional. 
+        log.info("Broadcast started. Setup: \(String(describing: setupInfo), privacy: .public)")
+        // M0: no transport initialized yet.
     }
-    
+
     override func broadcastPaused() {
-        // User has requested to pause the broadcast. Samples will stop being delivered.
+        log.info("Broadcast paused")
     }
-    
+
     override func broadcastResumed() {
-        // User has requested to resume the broadcast. Samples delivery will resume.
+        log.info("Broadcast resumed")
     }
-    
+
     override func broadcastFinished() {
-        // User has requested to finish the broadcast.
+        log.info("Broadcast finished")
     }
-    
+
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
+        // M0: Drop everything (no-op) — will wire in VTCompression + UDP at M4.
         switch sampleBufferType {
-        case RPSampleBufferType.video:
-            // Handle video sample buffer
-            break
-        case RPSampleBufferType.audioApp:
-            // Handle audio sample buffer for app audio
-            break
-        case RPSampleBufferType.audioMic:
-            // Handle audio sample buffer for mic audio
-            break
-        @unknown default:
-            // Handle other sample buffer types
-            fatalError("Unknown type of sample buffer")
+        case .video: break
+        case .audioApp: break
+        case .audioMic: break
+        @unknown default: break
         }
     }
 }

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en-GB</string>
+    <key>CFBundleDisplayName</key>
+    <string>BeamRoom Viewer</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+
+    <!-- Local network privacy (Bonjour service types) -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>BeamRoom uses the local network to discover and connect to nearby devices for screen sharing.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_beamroom._udp</string>
+        <string>_beamctl._tcp</string>
+    </array>
+
+    <!-- Wi-Fi Aware service declarations (role: viewer subscribes to both) -->
+    <key>WiFiAwareServices</key>
+    <array>
+        <dict>
+            <key>ServiceName</key>
+            <string>_beamroom._udp</string>
+            <key>Role</key>
+            <string>subscribe</string>
+        </dict>
+        <dict>
+            <key>ServiceName</key>
+            <string>_beamctl._tcp</string>
+            <key>Role</key>
+            <string>subscribe</string>
+        </dict>
+    </array>
+
+    <!-- Orientations -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>

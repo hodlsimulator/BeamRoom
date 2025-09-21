@@ -2,14 +2,52 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSExtension</key>
-	<dict>
-		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.broadcast-services-upload</string>
-		<key>NSExtensionPrincipalClass</key>
-		<string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
-		<key>RPBroadcastProcessMode</key>
-		<string>RPBroadcastProcessModeSampleBuffer</string>
-	</dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en-GB</string>
+    <key>CFBundleDisplayName</key>
+    <string>BeamRoom Upload</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <!-- Extension point -->
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.broadcast-services-upload</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+    </dict>
+
+    <!-- Local network + Bonjour declarations -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>BeamRoom uses the local network to deliver the live stream to nearby devices.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_beamroom._udp</string>
+        <string>_beamctl._tcp</string>
+    </array>
+
+    <!-- Wi-Fi Aware services (extension publishes media; control stays with Host app) -->
+    <key>WiFiAwareServices</key>
+    <array>
+        <dict>
+            <key>ServiceName</key>
+            <string>_beamroom._udp</string>
+            <key>Role</key>
+            <string>publish</string>
+        </dict>
+    </array>
 </dict>
 </plist>

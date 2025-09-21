@@ -6,12 +6,11 @@
 //
 
 import SwiftUI
+import BeamCore
 
 @main
 struct BeamRoomViewerApp: App {
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
+        WindowGroup { ViewerRootView() }
     }
 }
