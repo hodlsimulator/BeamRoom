@@ -4,24 +4,18 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  M1 UI — discovers Hosts via Bonjour/Wi-Fi Aware,
-//  lets user tap a Host to pair with a 4-digit code.
+//  M1 UI — discovers Hosts via Bonjour/Wi-Fi Aware and pairs with a 4-digit code.
 //
 
 import SwiftUI
 import Combine
-import BeamCore
 import Network
 import UIKit
-
-#if AWARE_UI_ENABLED
-#if canImport(DeviceDiscoveryUI)
+import BeamCore
 import DeviceDiscoveryUI
-#endif
-#if canImport(WiFiAware)
 import WiFiAware
-#endif
-#endif
+
+// MARK: - View model
 
 @MainActor
 final class ViewerViewModel: ObservableObject {
@@ -29,25 +23,27 @@ final class ViewerViewModel: ObservableObject {
     @Published var selectedHost: DiscoveredHost?
     @Published var showPairSheet: Bool = false
     @Published var showPermHint: Bool = false
-
-    #if AWARE_UI_ENABLED
     @Published var showAwareSheet: Bool = false
-    #endif
 
     let browser = BeamBrowser()
-    let client = BeamControlClient()
+    let client  = BeamControlClient()
 
     func startDiscovery() {
         do {
             try browser.start()
+            // If nothing shows after a short while, nudge the user about Local Network perms.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 if self.browser.hosts.isEmpty { self.showPermHint = true }
             }
-        } catch { }
+        } catch {
+            // No-op for now; UI still shows an empty list + hint.
+        }
     }
 
-    func stopDiscovery() { browser.stop() }
+    func stopDiscovery() {
+        browser.stop()
+    }
 
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
@@ -62,6 +58,8 @@ final class ViewerViewModel: ObservableObject {
     }
 }
 
+// MARK: - Root
+
 struct ViewerRootView: View {
     @StateObject private var model = ViewerViewModel()
 
@@ -72,10 +70,7 @@ struct ViewerRootView: View {
                     .font(.largeTitle).bold()
                     .multilineTextAlignment(.center)
 
-                // Wi-Fi Aware pairing UI is presented in a sheet to avoid early initialisation.
-                #if AWARE_UI_ENABLED
                 awarePickButton()
-                #endif
 
                 if model.showPermHint && model.browser.hosts.isEmpty {
                     HStack {
@@ -116,9 +111,6 @@ struct ViewerRootView: View {
 
                 Spacer(minLength: 12)
 
-                #if AWARE_UI_ENABLED
-                Text("Wi-Fi Aware UI enabled").font(.caption).foregroundStyle(.secondary)
-                #endif
                 Text(BeamCore.hello()).foregroundStyle(.secondary)
             }
             .padding()
@@ -126,49 +118,50 @@ struct ViewerRootView: View {
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
             .sheet(isPresented: $model.showPairSheet) { PairSheet(model: model) }
-            #if AWARE_UI_ENABLED
             .sheet(isPresented: $model.showAwareSheet) { awarePickSheet() }
-            #endif
         }
     }
+}
 
-    // MARK: - Aware UI (Viewer = Subscriber only)
+// MARK: - Aware UI (Viewer = Subscriber only)
 
-    #if AWARE_UI_ENABLED
-    @ViewBuilder private func awarePickButton() -> some View {
-        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
-        if #available(iOS 26.0, *) {
-            Button {
-                model.showAwareSheet = true
-            } label: {
-                Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
-            }
-            .buttonStyle(.bordered)
+private extension ViewerRootView {
+    @ViewBuilder
+    func awarePickButton() -> some View {
+        Button {
+            model.showAwareSheet = true
+        } label: {
+            Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
         }
-        #endif
+        .buttonStyle(.bordered)
     }
 
-    @ViewBuilder private func awarePickSheet() -> some View {
-        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
-        if #available(iOS 26.0, *),
-           // Viewer must read *subscriber* services only:
-           let service = WASubscribableService.allServices[BeamConfig.controlService] {
+    @ViewBuilder
+    func awarePickSheet() -> some View {
+        // Preflight the Info.plist to avoid framework assertion; only then touch `allServices`.
+        if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
             let provider = WASubscriberBrowser.wifiAware(
                 .connecting(to: devices, from: service),
                 active: nil
             )
-            DevicePicker(provider, onSelect: { _ in
-                // Paired and got an endpoint; your existing flow can continue via Network/Bonjour.
-            }, label: {
-                Text("Pair Viewer")
-            }, fallback: {
-                VStack(spacing: 12) {
-                    Text("Wi-Fi Aware not available.")
-                    Button("Close") { model.showAwareSheet = false }
+
+            DevicePicker(
+                provider,
+                onSelect: { _ in
+                    // You can resolve the selected peer into a Network.framework connection
+                    // or just continue with Bonjour discovery as we already do.
+                    model.showAwareSheet = false
+                },
+                label: { Text("Pair Viewer") },
+                fallback: {
+                    VStack(spacing: 12) {
+                        Text("Wi-Fi Aware not available.")
+                        Button("Close") { model.showAwareSheet = false }
+                    }
+                    .padding()
                 }
-                .padding()
-            })
+            )
         } else {
             VStack(spacing: 12) {
                 Text("Wi-Fi Aware service not available.")
@@ -176,13 +169,14 @@ struct ViewerRootView: View {
             }
             .padding()
         }
-        #endif
     }
-    #endif
 }
+
+// MARK: - Pair sheet
 
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -193,7 +187,11 @@ private struct PairSheet: View {
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                 }
-                Text("Your code").font(.caption).foregroundStyle(.secondary)
+
+                Text("Your code")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .monospacedDigit()
@@ -210,17 +208,24 @@ private struct PairSheet: View {
                 case .paired(let sid, _):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
-                    Text("Session: \(sid.uuidString)").font(.footnote).monospaced().foregroundStyle(.secondary)
+                    Text("Session: \(sid.uuidString)")
+                        .font(.footnote)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
                 case .failed(let reason):
                     Label("Failed: \(reason)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
                 }
 
                 Spacer()
+
                 HStack {
-                    Button("Cancel") { model.cancelPairing() }.buttonStyle(.bordered)
+                    Button("Cancel") { model.cancelPairing() }
+                        .buttonStyle(.bordered)
+
                     if case .paired = model.client.status {
-                        Button("Done") { model.showPairSheet = false }.buttonStyle(.borderedProminent)
+                        Button("Done") { model.showPairSheet = false }
+                            .buttonStyle(.borderedProminent)
                     }
                 }
             }
@@ -231,4 +236,6 @@ private struct PairSheet: View {
     }
 }
 
-#Preview { ViewerRootView() }
+#Preview {
+    ViewerRootView()
+}

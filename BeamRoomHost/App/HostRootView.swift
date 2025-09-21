@@ -178,3 +178,9 @@ struct HostRootView: View {
 }
 
 #Preview { HostRootView() }
+
+private func hasValidAwareConfig(_ service: String) -> Bool {
+    guard let dict = Bundle.main.object(forInfoDictionaryKey: "WiFiAwareServices") as? [String: Any],
+          let serviceCfg = dict[service] as? [String: Any] else { return false }
+    return true // presence + dictionary shape is enough; the system asserts otherwise
+}
