@@ -257,6 +257,8 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+				"$(SRCROOT)/$(INFOPLIST_FILE)",
 			);
 			name = "Read-only validator";
 			outputFileListPaths = (
