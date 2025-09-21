@@ -15,8 +15,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "upload")
 
     override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
-        log.info("Broadcast started. Setup: \(String(describing: setupInfo), privacy: .public)")
-        // M0: no transport initialized yet.
+        // No privacy parameters needed here; we’re logging a simple string.
+        log.info("Broadcast started. Setup: \(String(describing: setupInfo))")
+        // M0: no transport initialised yet.
     }
 
     override func broadcastPaused() {
@@ -31,8 +32,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         log.info("Broadcast finished")
     }
 
-    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-        // M0: Drop everything (no-op) — will wire in VTCompression + UDP at M4.
+    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer,
+                                      with sampleBufferType: RPSampleBufferType) {
+        // M0: Drop everything (no-op) — wire VTCompression + UDP later.
         switch sampleBufferType {
         case .video: break
         case .audioApp: break

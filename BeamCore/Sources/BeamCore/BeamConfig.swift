@@ -15,7 +15,8 @@ public enum BeamConfig {
     // Fixed TCP port for control channel (manual connect / Wi-Fi fallback)
     public static let controlPort: UInt16 = 52345
 
-    // Subsystems for OSLog
+    // Subsystems for OSLog (apps + broadcast upload extension)
     public static let subsystemHost   = "com.conornolan.BeamRoomHost"
     public static let subsystemViewer = "com.conornolan.BeamRoomViewer"
+    public static let subsystemExt    = "com.conornolan.BeamRoomBroadcastUpload"
 }
