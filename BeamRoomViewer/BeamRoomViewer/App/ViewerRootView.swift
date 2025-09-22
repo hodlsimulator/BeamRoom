@@ -12,8 +12,12 @@ import Combine
 import Network
 import UIKit
 import BeamCore
+#if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
+#endif
+#if canImport(WiFiAware)
 import WiFiAware
+#endif
 
 @MainActor
 final class ViewerViewModel: ObservableObject {
@@ -40,12 +44,18 @@ final class ViewerViewModel: ObservableObject {
 
     func stopDiscovery() { browser.stop() }
 
+    // Don’t connect here — just open the sheet with a fresh code
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
-        client.connect(to: host, code: code)
         showPairSheet = true
+    }
+
+    // Connect when the user taps “Pair” in the sheet
+    func pair() {
+        guard let host = selectedHost else { return }
+        client.connect(to: host, code: code)
     }
 
     func cancelPairing() {
@@ -122,12 +132,8 @@ struct ViewerRootView: View {
             .navigationTitle("Viewer")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showLogs = true
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
-                    }
-                    .lineLimit(1)
+                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
+                        .lineLimit(1)
                 }
             }
             .task { model.startDiscovery() }
@@ -155,6 +161,7 @@ private extension ViewerRootView {
 
     @ViewBuilder
     func awarePickSheet() -> some View {
+        #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
             let provider = WASubscriberBrowser.wifiAware(
@@ -188,6 +195,15 @@ private extension ViewerRootView {
             }
             .padding()
         }
+        #else
+        VStack(spacing: 12) {
+            Text("Wi-Fi Aware UI isn’t available on this build configuration.")
+            Button("Close") { model.showAwareSheet = false }
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+        }
+        .padding()
+        #endif
     }
 }
 
@@ -206,42 +222,28 @@ private struct PairSheet: View {
                         .minimumScaleFactor(0.8)
                 }
 
-                Text("Your code")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
+                Text("Your code").font(.caption).foregroundStyle(.secondary)
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .monospacedDigit()
 
                 switch model.client.status {
                 case .idle:
-                    Text("Idle").foregroundStyle(.secondary)
+                    Text("Ready to pair").foregroundStyle(.secondary)
                 case .connecting(let hostName, _):
                     Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
                 case .waitingAcceptance:
                     Label("Waiting for Host to accept…", systemImage: "hourglass")
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
                 case .paired(let sid, _):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
-                        .lineLimit(1)
                     Text("Session: \(sid.uuidString)")
-                        .font(.footnote)
-                        .monospaced()
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .font(.footnote).monospaced().foregroundStyle(.secondary)
                 case .failed(let reason):
                     Label("Failed: \(reason)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
                 }
 
                 Spacer()
@@ -249,14 +251,13 @@ private struct PairSheet: View {
                 HStack {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
 
                     if case .paired = model.client.status {
                         Button("Done") { model.showPairSheet = false }
                             .buttonStyle(.borderedProminent)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
+                    } else {
+                        Button("Pair") { model.pair() }
+                            .buttonStyle(.borderedProminent)
                     }
                 }
             }

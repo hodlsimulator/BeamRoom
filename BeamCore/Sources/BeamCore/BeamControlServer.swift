@@ -61,7 +61,13 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private var bonjourName: String?
     private var bonjourBackoffAttempt: Int = 0
 
-    public override init() { super.init() }
+    // Auto-accept control (toggle from UI)
+    public var autoAccept: Bool
+
+    public init(autoAccept: Bool = BeamConfig.autoAcceptDuringTest) {
+        self.autoAccept = autoAccept
+        super.init()
+    }
 
     private func cid(for conn: NWConnection) -> Int { connIDs[ObjectIdentifier(conn)] ?? -1 }
 
@@ -221,7 +227,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
             let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
 
-            if BeamConfig.autoAcceptDuringTest {
+            if self.autoAccept {
                 let sid = UUID()
                 let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
                 sendResponse(resp, over: conn)
@@ -238,7 +244,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
             return
         }
 
-        // 2) Heartbeat SECOND
+        // 2) Heartbeat
         if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
             BeamLog.debug("conn#\(cid) hb", tag: "host")
             return

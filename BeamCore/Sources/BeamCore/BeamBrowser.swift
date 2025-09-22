@@ -13,9 +13,12 @@ private let browserLog = Logger(subsystem: BeamConfig.subsystemViewer, category:
 
 public final class BeamBrowser: NSObject, ObservableObject {
     @Published public private(set) var hosts: [DiscoveredHost] = []
+
     private var nwBrowser: NWBrowser?
     private var nsBrowser: NetServiceBrowser?
     private var nsServices: [NetService] = []
+
+    /// Aggregate by service endpoint debugDescription
     private var aggregate: [String: DiscoveredHost] = [:]
 
     public override init() { super.init() }
@@ -28,7 +31,7 @@ public final class BeamBrowser: NSObject, ObservableObject {
             self.hosts.removeAll()
         }
 
-        // A) NWBrowser
+        // A) NWBrowser (Network.framework Bonjour)
         let descriptor = NWBrowser.Descriptor.bonjour(type: BeamConfig.controlService, domain: nil)
         let params = BeamTransportParameters.tcpPeerToPeer()
         let nw = NWBrowser(for: descriptor, using: params)
@@ -54,7 +57,11 @@ public final class BeamBrowser: NSObject, ObservableObject {
                     let name: String
                     if case let .service(name: svcName, type: _, domain: _, interface: _) = ep { name = svcName }
                     else { name = "Host" }
-                    newAgg[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
+                    var existing = self.aggregate[ep.debugDescription]
+                    if existing == nil {
+                        existing = DiscoveredHost(name: name, endpoint: ep)
+                    }
+                    newAgg[ep.debugDescription] = existing!
                 }
                 self.aggregate = newAgg
                 self.publishHosts()
@@ -65,7 +72,7 @@ public final class BeamBrowser: NSObject, ObservableObject {
 
         nw.start(queue: .main)
 
-        // B) Classic NetServiceBrowser (for address logging + redundancy)
+        // B) Classic NetServiceBrowser (for address resolution + redundancy)
         let nsb = NetServiceBrowser()
         nsb.includesPeerToPeer = true
         nsb.delegate = self
@@ -98,15 +105,19 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
         service.delegate = self
         service.includesPeerToPeer = true
         nsServices.append(service)
-        service.resolve(withTimeout: 5.0)
+        service.resolve(withTimeout: 5.0) // addresses will arrive in netServiceDidResolveAddress
 
+        // Insert placeholder now; we'll upgrade to IPv4 when resolved
         let name = service.name
         let type = service.type.hasSuffix(".") ? String(service.type.dropLast()) : service.type
         let domain = service.domain.isEmpty ? "local." : service.domain
         let ep = NWEndpoint.service(name: name, type: type, domain: domain, interface: nil)
+
         Task { @MainActor in
-            self.aggregate[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
-            if !moreComing { self.publishHosts() }
+            if self.aggregate[ep.debugDescription] == nil {
+                self.aggregate[ep.debugDescription] = DiscoveredHost(name: name, endpoint: ep)
+                if !moreComing { self.publishHosts() }
+            }
         }
     }
 
@@ -115,11 +126,27 @@ extension BeamBrowser: NetServiceBrowserDelegate, NetServiceDelegate {
     }
 
     public func netServiceDidResolveAddress(_ sender: NetService) {
-        let addrs = (sender.addresses ?? []).compactMap { renderSockaddr($0) }
-        if addrs.isEmpty {
-            BeamLog.info("Resolved \(sender.name) (no addresses)", tag: "viewer")
-        } else {
-            BeamLog.info("Resolved \(sender.name) → \(addrs.joined(separator: ", "))", tag: "viewer")
+        // Copy everything we need off-thread FIRST to avoid capturing `sender` (non-Sendable)
+        let addresses = sender.addresses ?? []
+        let name = sender.name
+        let type = sender.type.hasSuffix(".") ? String(sender.type.dropLast()) : sender.type
+        let domain = sender.domain.isEmpty ? "local." : sender.domain
+        let serviceEP = NWEndpoint.service(name: name, type: type, domain: domain, interface: nil)
+
+        let (preferred, ips) = choosePreferredEndpoint(from: addresses)
+
+        Task { @MainActor in
+            var h = self.aggregate[serviceEP.debugDescription] ?? DiscoveredHost(name: name, endpoint: serviceEP)
+            h.preferredEndpoint = preferred
+            h.resolvedIPs = ips
+            self.aggregate[serviceEP.debugDescription] = h
+            self.publishHosts()
+
+            if ips.isEmpty {
+                BeamLog.info("Resolved \(name) (no addresses)", tag: "viewer")
+            } else {
+                BeamLog.info("Resolved \(name) → \(ips.joined(separator: ", "))", tag: "viewer")
+            }
         }
     }
 

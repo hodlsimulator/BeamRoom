@@ -48,12 +48,13 @@ public final class BeamControlClient: ObservableObject {
         attemptSeq += 1
         attemptID = attemptSeq
 
+        let endpoint = host.connectEndpoint
         let hostName = host.name
-        let remoteDesc = host.endpoint.debugDescription
+        let remoteDesc = endpoint.debugDescription
         BeamLog.info("conn#\(attemptID) Connecting to \(hostName) @ \(remoteDesc) with code \(code)", tag: "viewer")
 
         let params = BeamTransportParameters.tcpPeerToPeer()
-        let conn = NWConnection(to: host.endpoint, using: params)
+        let conn = NWConnection(to: endpoint, using: params)
         self.connection = conn
 
         self.status = .connecting(hostName: hostName, remote: remoteDesc)
@@ -190,7 +191,7 @@ public final class BeamControlClient: ObservableObject {
             return
         }
 
-        // 2) Heartbeat SECOND
+        // 2) Heartbeat
         if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
             BeamLog.debug("hb ✓", tag: "viewer")
             return

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Network
 
 public enum BeamRole: String, Codable { case host, viewer }
 
@@ -29,7 +30,7 @@ public enum BeamError: Error, LocalizedError {
     }
 }
 
-// Control messages
+// MARK: Control messages
 
 public struct HandshakeRequest: Codable, Equatable {
     public let app: String = "beamroom"
@@ -55,13 +56,13 @@ public struct HandshakeResponse: Codable, Equatable {
     }
 }
 
-/// Make `hb` REQUIRED so random JSON can’t be mis-decoded as a heartbeat.
+/// Heartbeat frame (required `hb` key to avoid mis-decodes)
 public struct Heartbeat: Codable, Equatable {
     public let hb: Int
     public init(hb: Int = 1) { self.hb = hb }
 }
 
-// Newline-delimited JSON frames
+// MARK: Newline-delimited JSON framing
 
 enum Frame {
     static let nl = UInt8(0x0A)
@@ -74,7 +75,7 @@ enum Frame {
         return out
     }
 
-    /// Append incoming → buffer, return any complete newline-terminated frames
+    /// Append incoming → buffer, return complete newline-terminated frames
     @discardableResult
     static func drainLines(buffer: inout Data, incoming: Data) -> [Data] {
         buffer.append(incoming)
@@ -88,16 +89,25 @@ enum Frame {
     }
 }
 
-// Public model used by the Viewer UI
-
-import Network
+// MARK: Discovered Host model
 
 public struct DiscoveredHost: Identifiable, Hashable {
     public let id = UUID()
     public let name: String
+    /// Original Bonjour service endpoint (works everywhere).
     public let endpoint: NWEndpoint
-    public init(name: String, endpoint: NWEndpoint) {
+    /// Preferred infrastructure IPv4 endpoint (set when we resolve addresses).
+    public var preferredEndpoint: NWEndpoint?
+    /// For diagnostics/UI
+    public var resolvedIPs: [String] = []
+
+    public init(name: String, endpoint: NWEndpoint, preferredEndpoint: NWEndpoint? = nil, resolvedIPs: [String] = []) {
         self.name = name
         self.endpoint = endpoint
+        self.preferredEndpoint = preferredEndpoint
+        self.resolvedIPs = resolvedIPs
     }
+
+    /// Use this when connecting: pick IPv4 infra if available, else the service.
+    public var connectEndpoint: NWEndpoint { preferredEndpoint ?? endpoint }
 }

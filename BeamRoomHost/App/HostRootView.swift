@@ -5,7 +5,7 @@
 //  Created by . . on 9/21/25.
 //
 //  Publishes the control service, shows pending pair requests,
-//  and (optionally) presents Wi-Fi Aware pairing UI.
+//  and lets you toggle Auto-accept during testing.
 //
 
 import SwiftUI
@@ -18,8 +18,13 @@ import Network
 final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
+    @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
 
-    let server = BeamControlServer()
+    let server: BeamControlServer
+
+    init() {
+        self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
+    }
 
     func toggle() {
         if started {
@@ -36,7 +41,8 @@ final class HostViewModel: ObservableObject {
         }
     }
 
-    func accept(_ id: UUID)  { server.accept(id) }
+    func setAutoAccept(_ v: Bool) { server.autoAccept = v }
+    func accept(_ id: UUID) { server.accept(id) }
     func decline(_ id: UUID) { server.decline(id) }
 }
 
@@ -54,24 +60,26 @@ struct HostRootView: View {
                 HStack {
                     TextField("Service Name", text: $model.serviceName)
                         .textFieldStyle(.roundedBorder)
-
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.9)
                 }
 
+                Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
+                    .onChange(of: model.autoAccept) { old, new in
+                        model.setAutoAccept(new)
+                    }
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Circle().frame(width: 10, height: 10)
                             .foregroundStyle(model.started ? .green : .secondary)
-                        Text(model.started
-                             ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)"
-                             : "Not advertising")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+                        Text(model.started ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)" : "Not advertising")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
                     }
 
                     if !model.server.sessions.isEmpty {
@@ -97,13 +105,11 @@ struct HostRootView: View {
                     }
 
                     Text("Pair Requests").font(.headline)
-
                     if model.server.pendingPairs.isEmpty {
                         Text("None yet.\nA Viewer will tap your name and send a 4-digit code.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-
                     List(model.server.pendingPairs) { p in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -119,11 +125,9 @@ struct HostRootView: View {
                                 Button("Decline") { model.decline(p.id) }
                                     .buttonStyle(.bordered)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.9)
                                 Button("Accept") { model.accept(p.id) }
                                     .buttonStyle(.borderedProminent)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.9)
                             }
                         }
                         .padding(.vertical, 4)
@@ -133,7 +137,6 @@ struct HostRootView: View {
                 }
 
                 Spacer(minLength: 12)
-
                 Text(BeamCore.hello())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -142,16 +145,13 @@ struct HostRootView: View {
             .navigationTitle("Host")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showLogs = true
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
-                    }
-                    .lineLimit(1)
+                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
+                        .lineLimit(1)
                 }
             }
             .task {
                 if !model.started { model.toggle() }
+                model.setAutoAccept(model.autoAccept)
             }
             .sheet(isPresented: $showLogs) { BeamLogView() }
         }
