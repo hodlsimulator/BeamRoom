@@ -23,7 +23,7 @@ final class HostViewModel: ObservableObject {
     @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
 
     let server: BeamControlServer
-    private var pollTimer: Timer?
+    private var pollTimer: DispatchSourceTimer?
 
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
@@ -50,19 +50,29 @@ final class HostViewModel: ObservableObject {
     func accept(_ id: UUID) { server.accept(id) }
     func decline(_ id: UUID) { server.decline(id) }
 
-    // Poll the App Group flag (simple, robust)
+    // MARK: Broadcast poll (App Group flag → UI)
     private func startBroadcastPoll() {
-        pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
+        stopBroadcastPoll()
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 1, repeating: 1)
+        t.setEventHandler { [weak self] in
+            guard let self = self else { return }
             let on = BeamConfig.isBroadcastOn()
-            if on != self.broadcastOn {
-                self.broadcastOn = on
-                // Server will push to all viewers on next poll (it also polls internally)
+            // Hop to MainActor before touching @Published state
+            Task { @MainActor in
+                if on != self.broadcastOn {
+                    self.broadcastOn = on
+                }
             }
         }
+        t.resume()
+        pollTimer = t
     }
-    private func stopBroadcastPoll() { pollTimer?.invalidate(); pollTimer = nil }
+
+    private func stopBroadcastPoll() {
+        pollTimer?.cancel()
+        pollTimer = nil
+    }
 }
 
 struct HostRootView: View {
@@ -88,7 +98,7 @@ struct HostRootView: View {
                 Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
                     .onChange(of: model.autoAccept) { _, new in model.setAutoAccept(new) }
 
-                // M2: Broadcast controls
+                // Broadcast controls
                 broadcastSection
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -191,16 +201,13 @@ struct HostRootView: View {
                 Spacer()
             }
 
-            // Apple’s system picker doubles as Start/Stop.
             BroadcastPicker()
                 .frame(height: 44)
         }
     }
 }
 
-// Wrap RPSystemBroadcastPickerView so we don’t hardcode bundle id.
-// It auto-detects the embedded Upload extension (.appex with
-// NSExtensionPointIdentifier = com.apple.broadcast-services-upload).
+// RPSystemBroadcastPickerView wrapper: auto-detects the Upload extension.
 private struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let v = RPSystemBroadcastPickerView()
