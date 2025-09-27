@@ -23,7 +23,7 @@ public enum BeamConfig {
 
     // Temporary test switch: auto-accept pairing on Host to prove end-to-end.
     // Set to false to restore manual Accept/Decline.
-    public static let autoAcceptDuringTest = true
+    public static let autoAcceptDuringTest = false
 
     // M2: Broadcast plumbing (App Group + cross-process flag)
     public static let appGroup = "group.com.conornolan.beamroom"

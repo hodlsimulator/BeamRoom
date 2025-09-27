@@ -7,13 +7,33 @@
 // Viewer-side UDP media receiver + tiny test-frame decoder (BGRA32)
 //
 
+
 import Foundation
 import Combine
 import Network
 import OSLog
 import CoreGraphics
 
-private let mediaLog = Logger(subsystem: BeamConfig.subsystemViewer, category: "udp-media")
+private let mediaOS = Logger(subsystem: BeamConfig.subsystemViewer, category: "udp-media")
+
+// Free helpers (nonisolated) so we can call from background callbacks safely.
+private func udpIfaceTypeString(_ t: NWInterface.InterfaceType) -> String {
+    switch t {
+    case .wifi: return "wifi"
+    case .cellular: return "cellular"
+    case .wiredEthernet: return "wired"
+    case .loopback: return "loop"
+    case .other: return "other"
+    @unknown default: return "other"
+    }
+}
+
+private func udpPathSummary(_ path: NWPath?) -> String {
+    guard let p = path else { return "path=?" }
+    let ifs = p.availableInterfaces.map { udpIfaceTypeString($0.type) }.joined(separator: ",")
+    let ok = (p.status == .satisfied) ? "ok" : "fail"
+    return "path=\(ok),ifs=\(ifs)"
+}
 
 @MainActor
 public final class UDPMediaClient: ObservableObject {
@@ -23,7 +43,7 @@ public final class UDPMediaClient: ObservableObject {
         public var fps: Double = 0
         public var kbps: Double = 0
         public var lastSeq: UInt32 = 0
-        public var drops: UInt64 = 0
+        public var drops: UInt64 = 0           // sequence gaps
         public init() {}
     }
 
@@ -36,41 +56,65 @@ public final class UDPMediaClient: ObservableObject {
     private var windowStart = Date()
     private var connectedKey: String?
 
+    // Diagnostics
+    private var sawAnyDatagram = false
+    private var sawFirstValidFrame = false
+    private var shortHeaderCount: UInt64 = 0
+    private var badMagicCount: UInt64 = 0
+    private var badSizeCount: UInt64 = 0
+    private var lastSummaryAt = Date()
+
     public init() {}
 
     public func connect(toHost host: NWEndpoint.Host, port: UInt16) {
-        // De-dupe if already connected to same target
-        let key = "\(host):\(port)"
-        if connectedKey == key { return }
-
+        let key = "\(String(describing: host)):\(port)"
+        if connectedKey == key {
+            BeamLog.debug("UDP connect de-dupe → already \(key)", tag: "viewer")
+            return
+        }
         disconnect()
         connectedKey = key
+
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+            BeamLog.error("UDP connect failed: invalid port \(port)", tag: "viewer")
+            return
+        }
 
         let params = NWParameters.udp
         params.requiredInterfaceType = .wifi
         params.includePeerToPeer = false
 
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
         let c = NWConnection(host: host, port: nwPort, using: params)
         conn = c
 
+        BeamLog.info("UDP connect → \(String(describing: host)):\(port)", tag: "viewer")
+
         c.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+            let ps = udpPathSummary(c.currentPath)
             switch state {
+            case .setup:
+                BeamLog.debug("UDP state=setup (\(ps))", tag: "viewer")
+            case .preparing:
+                BeamLog.debug("UDP state=preparing (\(ps))", tag: "viewer")
             case .ready:
-                mediaLog.info("UDP ready → \(String(describing: host)):\(port)")
+                mediaOS.info("UDP ready → \(String(describing: host)):\(port)")
+                BeamLog.info("UDP ready (\(ps)) → send hello & recv", tag: "viewer")
                 Task { @MainActor in
-                    self.sendHello()
-                    self.receiveLoop()
+                    self?.sendHello()
+                    self?.receiveLoop()
                 }
+            case .waiting(let err):
+                BeamLog.warn("UDP waiting: \(err.localizedDescription) (\(ps))", tag: "viewer")
             case .failed(let err):
-                mediaLog.error("UDP failed: \(err.localizedDescription)")
-                Task { @MainActor in self.disconnect() }
+                mediaOS.error("UDP failed: \(err.localizedDescription, privacy: .public)")
+                BeamLog.error("UDP failed: \(err.localizedDescription) (\(ps))", tag: "viewer")
+                Task { @MainActor in self?.disconnect() }
             case .cancelled:
-                mediaLog.notice("UDP cancelled")
-                Task { @MainActor in self.disconnect() }
-            default:
-                break
+                mediaOS.notice("UDP cancelled")
+                BeamLog.warn("UDP cancelled (\(ps))", tag: "viewer")
+                Task { @MainActor in self?.disconnect() }
+            @unknown default:
+                BeamLog.debug("UDP state=\(String(describing: state)) (\(ps))", tag: "viewer")
             }
         }
 
@@ -85,6 +129,16 @@ public final class UDPMediaClient: ObservableObject {
         bytesInWindow = 0
         framesInWindow = 0
         connectedKey = nil
+
+        // reset diagnostics
+        sawAnyDatagram = false
+        sawFirstValidFrame = false
+        shortHeaderCount = 0
+        badMagicCount = 0
+        badSizeCount = 0
+        lastSummaryAt = Date()
+
+        BeamLog.info("UDP disconnected", tag: "viewer")
     }
 
     // MARK: - IO
@@ -92,8 +146,13 @@ public final class UDPMediaClient: ObservableObject {
     private func sendHello() {
         guard let c = conn else { return }
         let hello = Data([0x42, 0x52, 0x48, 0x49, 0x21]) // "BRHI!"
-        c.send(content: hello, completion: .contentProcessed { _ in
-            mediaLog.debug("UDP hello → sent")
+        c.send(content: hello, completion: .contentProcessed { maybeErr in
+            if let e = maybeErr {
+                BeamLog.error("UDP hello send error: \(e.localizedDescription)", tag: "viewer")
+            } else {
+                mediaOS.debug("UDP hello → sent")
+                BeamLog.debug("UDP hello → sent (5 bytes)", tag: "viewer")
+            }
         })
     }
 
@@ -103,11 +162,16 @@ public final class UDPMediaClient: ObservableObject {
             guard let self else { return }
 
             if let d = data, !d.isEmpty {
+                if !self.sawAnyDatagram {
+                    self.sawAnyDatagram = true
+                    BeamLog.info("UDP rx first datagram: \(d.count) bytes", tag: "viewer")
+                }
                 self.handleDatagram(d)
             }
 
             if let error {
-                mediaLog.error("UDP recv error: \(error.localizedDescription)")
+                mediaOS.error("UDP recv error: \(error.localizedDescription, privacy: .public)")
+                BeamLog.error("UDP recv error: \(error.localizedDescription)", tag: "viewer")
                 Task { @MainActor in self.disconnect() }
                 return
             }
@@ -118,16 +182,28 @@ public final class UDPMediaClient: ObservableObject {
 
     private func handleDatagram(_ data: Data) {
         // Header: [u32 magic 'BMRM'][u32 seq][u16 w][u16 h] (big-endian)
-        guard data.count >= 12 else { return }
+        guard data.count >= 12 else {
+            shortHeaderCount &+= 1
+            maybeSummarise()
+            return
+        }
         let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).bigEndian }
-        guard magic == 0x424D524D else { return } // 'BMRM'
+        guard magic == 0x424D524D /* 'BMRM' */ else {
+            badMagicCount &+= 1
+            maybeSummarise()
+            return
+        }
 
         let seq = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
         let w = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
         let h = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
-
         let pixelBytes = data.count - 12
-        guard pixelBytes == w * h * 4 else { return }
+        let expected = w * h * 4
+        guard pixelBytes == expected, expected > 0 else {
+            badSizeCount &+= 1
+            maybeSummarise(extra: "badSize got=\(pixelBytes) want=\(expected) w=\(w) h=\(h)")
+            return
+        }
 
         // Stats
         if stats.frames > 0, seq > stats.lastSeq + 1 {
@@ -142,11 +218,14 @@ public final class UDPMediaClient: ObservableObject {
         let now = Date()
         let elapsed = now.timeIntervalSince(windowStart)
         if elapsed >= 1.0 {
-            stats.fps  = Double(framesInWindow) / elapsed
+            stats.fps = Double(framesInWindow) / elapsed
             stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
             windowStart = now
             bytesInWindow = 0
             framesInWindow = 0
+
+            BeamLog.debug(String(format: "UDP preview rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
+                                 stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
         }
 
         // Image (BGRA32, premultipliedFirst, byteOrder32Little)
@@ -157,18 +236,31 @@ public final class UDPMediaClient: ObservableObject {
         let rowBytes = w * 4
 
         if let provider,
-           let img = CGImage(width: w,
-                             height: h,
-                             bitsPerComponent: 8,
-                             bitsPerPixel: 32,
-                             bytesPerRow: rowBytes,
-                             space: cs,
-                             bitmapInfo: bmp,
-                             provider: provider,
-                             decode: nil,
-                             shouldInterpolate: true,
-                             intent: .defaultIntent) {
+           let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
+                             bytesPerRow: rowBytes, space: cs, bitmapInfo: bmp,
+                             provider: provider, decode: nil,
+                             shouldInterpolate: true, intent: .defaultIntent) {
+            if !sawFirstValidFrame {
+                sawFirstValidFrame = true
+                BeamLog.info("UDP first valid frame ✓ \(w)x\(h) (seq \(seq))", tag: "viewer")
+            }
             lastImage = img
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func maybeSummarise(extra: String? = nil) {
+        let now = Date()
+        if now.timeIntervalSince(lastSummaryAt) >= 1.0 {
+            lastSummaryAt = now
+            var bits: [String] = []
+            if shortHeaderCount > 0 { bits.append("short \(shortHeaderCount)") }
+            if badMagicCount > 0 { bits.append("badMagic \(badMagicCount)") }
+            if badSizeCount > 0  { bits.append("badSize \(badSizeCount)") }
+            if !bits.isEmpty {
+                BeamLog.debug("UDP rx rejects: " + bits.joined(separator: " • ") + (extra != nil ? " • \(extra!)" : ""), tag: "viewer")
+            }
         }
     }
 }

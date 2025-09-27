@@ -16,9 +16,7 @@ private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "c
 
 @MainActor
 public final class BeamControlServer: NSObject, ObservableObject {
-
     // MARK: View-facing models
-
     public struct PendingPair: Identifiable, Equatable {
         public let id: UUID
         public let connID: Int
@@ -34,23 +32,19 @@ public final class BeamControlServer: NSObject, ObservableObject {
     }
 
     // MARK: Published state
-
     @Published public private(set) var sessions: [ActiveSession] = []
     @Published public private(set) var pendingPairs: [PendingPair] = []
     @Published public private(set) var udpPeer: String? = nil
     @Published public private(set) var isStreaming: Bool = false
 
     // MARK: Configuration
-
     public var autoAccept: Bool
 
     // MARK: Internals
-
     private var listener: NWListener?
     private var netService: NetService?
     private var netServiceDelegateProxy: NetServiceDelegateProxy?
     private var republishAttempts = 0
-
     private var connections: [Int : Conn] = [:]
     private var nextConnID = 1
 
@@ -78,8 +72,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
         params.includePeerToPeer = false
         params.requiredInterfaceType = .wifi
         params.prohibitedInterfaceTypes = [.cellular]
-
         let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort)!
+
         let lis = try NWListener(using: params, on: port)
         listener = lis
 
@@ -92,8 +86,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     BeamLog.info("Host listener state=ready", tag: "host")
                 case .failed(let err):
                     BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
-                default:
-                    break
+                default: break
                 }
             }
         }
@@ -119,7 +112,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     self.udpPeer = peer
-
                     // Auto-start/stop the M3 test stream based on peer presence during test mode.
                     if peer == nil {
                         if self.isStreaming {
@@ -141,7 +133,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     guard let self else { return }
                     BeamLog.info("Media UDP ready on port \(udpPort)", tag: "host")
                     BeamConfig.setBroadcastUDPPort(udpPort)
-
                     // Push MediaParams to all paired clients
                     for conn in self.connections.values where conn.sessionID != nil {
                         conn.sendMediaParams(udpPort: udpPort)
@@ -193,11 +184,13 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
     public func startTestStream() {
         guard let media else { return }
+        BeamLog.info("Test stream START requested (UI/auto)", tag: "host")
         media.startTestFrames()
         isStreaming = true
     }
 
     public func stopTestStream() {
+        BeamLog.info("Test stream STOP requested (UI/auto)", tag: "host")
         media?.stopTestFrames()
         isStreaming = false
     }
@@ -213,9 +206,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
             return
         }
 
-        if let pid = conn.pendingPairID {
-            removePending(pid)
-        }
+        if let pid = conn.pendingPairID { removePending(pid) }
 
         let sid = UUID()
         conn.sessionID = sid
@@ -252,7 +243,9 @@ public final class BeamControlServer: NSObject, ObservableObject {
     }
 
     private func findConn(for pendingID: UUID) -> Conn? {
-        for (_, c) in connections where c.pendingPairID == pendingID { return c }
+        for (_, c) in connections where c.pendingPairID == pendingID {
+            return c
+        }
         return nil
     }
 
@@ -264,7 +257,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
     private func publishBonjour(name: String, type: String, port: Int) {
         unpublishBonjour()
-
         let svcType = type.hasSuffix(".") ? type : type + "."
         let ns = NetService(domain: "local.", type: svcType, name: name, port: Int32(port))
         ns.includesPeerToPeer = true
@@ -347,11 +339,6 @@ private final class NetServiceDelegateProxy: NSObject, NetServiceDelegate {
         super.init()
     }
 
-    func netServiceDidPublish(_ sender: NetService) {
-        onPublished?(sender)
-    }
-
-    func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
-        onDidNotPublish?(sender, errorDict)
-    }
+    func netServiceDidPublish(_ sender: NetService) { onPublished?(sender) }
+    func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) { onDidNotPublish?(sender, errorDict) }
 }

@@ -32,6 +32,9 @@ final class MediaUDP: @unchecked Sendable {
     private var bytesInWindow: Int = 0
     private var windowStart = Date()
 
+    // Rate-limit “no peer” spam
+    private var lastNoPeerLogAt: Date?
+
     init(onPeerChanged: ((String?) -> Void)? = nil) {
         self.onPeerChanged = onPeerChanged
     }
@@ -52,11 +55,23 @@ final class MediaUDP: @unchecked Sendable {
             lis.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
-                    if let p = self?.listener?.port?.rawValue { onReady(p) }
+                    if let p = self?.listener?.port?.rawValue {
+                        BeamLog.info("Media UDP listener ready on \(p)", tag: "host")
+                        onReady(p)
+                    } else {
+                        BeamLog.warn("Media UDP ready but missing port", tag: "host")
+                    }
                 case .failed(let err):
+                    BeamLog.error("Media UDP listener failed: \(err.localizedDescription)", tag: "host")
                     onError(err)
-                default:
-                    break
+                case .setup:
+                    BeamLog.debug("Media UDP state=setup", tag: "host")
+                case .waiting(let e):
+                    BeamLog.warn("Media UDP waiting: \(e.localizedDescription)", tag: "host")
+                case .cancelled:
+                    BeamLog.warn("Media UDP cancelled", tag: "host")
+                @unknown default:
+                    BeamLog.debug("Media UDP state=\(String(describing: state))", tag: "host")
                 }
             }
 
@@ -66,23 +81,32 @@ final class MediaUDP: @unchecked Sendable {
             }
 
             lis.start(queue: .main)
+            BeamLog.info("Media UDP starting…", tag: "host")
         } catch {
+            BeamLog.error("Media UDP start error: \(error.localizedDescription)", tag: "host")
             onError(error)
         }
     }
 
     func stop() {
         stopTestFrames()
+        if let old = activePeer {
+            BeamLog.warn("UDP peer closing: \(old.endpoint.debugDescription)", tag: "host")
+        }
         activePeer?.cancel(); activePeer = nil
         listener?.cancel(); listener = nil
         onPeerChanged?(nil)
+        BeamLog.info("Media UDP stopped", tag: "host")
     }
 
     // MARK: Peer
 
     private func installPeer(_ conn: NWConnection) {
         // Replace any existing peer
-        activePeer?.cancel()
+        if let old = activePeer {
+            BeamLog.warn("UDP peer replaced: \(old.endpoint.debugDescription) → \(conn.endpoint.debugDescription)", tag: "host")
+            old.cancel()
+        }
         activePeer = conn
 
         conn.stateUpdateHandler = { [weak self] state in
@@ -95,13 +119,17 @@ final class MediaUDP: @unchecked Sendable {
             case .failed(let err):
                 BeamLog.error("UDP peer failed: \(err.localizedDescription)", tag: "host")
                 self.onPeerChanged?(nil)
-                self.activePeer = nil   // clear stale peer to avoid sends on dead socket
+                self.activePeer = nil // clear stale peer to avoid sends on dead socket
             case .cancelled:
                 BeamLog.warn("UDP peer cancelled", tag: "host")
                 self.onPeerChanged?(nil)
-                self.activePeer = nil   // clear on cancel too
-            default:
-                break
+                self.activePeer = nil // clear on cancel too
+            case .preparing:
+                BeamLog.debug("UDP peer preparing", tag: "host")
+            case .waiting(let e):
+                BeamLog.warn("UDP peer waiting: \(e.localizedDescription)", tag: "host")
+            @unknown default:
+                BeamLog.debug("UDP peer state=\(String(describing: state))", tag: "host")
             }
         }
 
@@ -110,7 +138,6 @@ final class MediaUDP: @unchecked Sendable {
 
     private func receiveLoop(on conn: NWConnection) {
         conn.receiveMessage { [weak self] data, _, _, _ in
-            // Any datagram from the viewer is effectively a “hello”; ignore contents.
             if let self, let d = data, !d.isEmpty {
                 BeamLog.debug("UDP ← \(d.count) bytes (hello/keepalive)", tag: "host")
             }
@@ -127,15 +154,24 @@ final class MediaUDP: @unchecked Sendable {
         t.setEventHandler { [weak self] in self?.tick() }
         t.resume()
         streamTimer = t
+        BeamLog.info("Test stream START (fake frames)", tag: "host")
     }
 
     func stopTestFrames() {
         streamTimer?.cancel()
         streamTimer = nil
+        BeamLog.info("Test stream STOP", tag: "host")
     }
 
     private func tick() {
-        guard let peer = activePeer else { return }
+        guard let peer = activePeer else {
+            let now = Date()
+            if lastNoPeerLogAt == nil || now.timeIntervalSince(lastNoPeerLogAt!) >= 2.0 {
+                lastNoPeerLogAt = now
+                BeamLog.debug("Test stream tick: no active peer; skipping send", tag: "host")
+            }
+            return
+        }
 
         seq &+= 1
         let payload = makeGradientFrame(seq: seq, w: w, h: h)
@@ -146,13 +182,15 @@ final class MediaUDP: @unchecked Sendable {
         if now.timeIntervalSince(windowStart) >= 1.0 {
             let seconds = now.timeIntervalSince(windowStart)
             let kbps = Double(bytesInWindow * 8) / seconds / 1000.0
-            BeamLog.debug(String(format: "UDP preview ~ %.1f kbps @ %dx%d", kbps, w, h), tag: "host")
+            BeamLog.debug(String(format: "UDP preview tx ~ %.1f kbps @ %dx%d", kbps, w, h), tag: "host")
             windowStart = now
             bytesInWindow = 0
         }
 
-        peer.send(content: payload, completion: .contentProcessed { _ in
-            // quiet
+        peer.send(content: payload, completion: .contentProcessed { maybeErr in
+            if let e = maybeErr {
+                BeamLog.error("UDP send error: \(e.localizedDescription)", tag: "host")
+            }
         })
     }
 
@@ -167,16 +205,18 @@ final class MediaUDP: @unchecked Sendable {
 
         // Pixels (BGRA32): simple moving gradient
         out.reserveCapacity(12 + w*h*4)
-
         let t = Double(seq) * 0.08
         for y in 0..<h {
             for x in 0..<w {
-                let fx = Double(x) / Double(w)
-                let fy = Double(y) / Double(h)
-                let r = UInt8( (sin(t + fx * 6.28318) * 0.5 + 0.5) * 255.0 )
-                let g = UInt8( (sin(t + fy * 6.28318) * 0.5 + 0.5) * 255.0 )
-                let b = UInt8( (sin(t + (fx + fy) * 3.14159) * 0.5 + 0.5) * 255.0 )
-                out.append(contentsOf: [b, g, r, 0xFF]) // BGRA
+                let fx = Double(x) / Double(max(1, w - 1))
+                let fy = Double(y) / Double(max(1, h - 1))
+                let r = UInt8((sin(fx * 6.283 + t) * 0.5 + 0.5) * 255)
+                let g = UInt8((sin(fy * 6.283 + t * 0.8) * 0.5 + 0.5) * 255)
+                let b = UInt8((sin((fx + fy) * 3.1415 + t * 0.6) * 0.5 + 0.5) * 255)
+                out.append(b) // BGRA
+                out.append(g)
+                out.append(r)
+                out.append(0xFF) // A
             }
         }
         return out
