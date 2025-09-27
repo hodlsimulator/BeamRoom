@@ -20,9 +20,7 @@ final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
     @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
-    @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
-
-    // Mirror server’s state so SwiftUI updates.
+    @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn() // mirror App Group flag
     @Published var sessions: [BeamControlServer.ActiveSession] = []
     @Published var pendingPairs: [BeamControlServer.PendingPair] = []
     @Published var udpPeer: String? = nil
@@ -34,9 +32,18 @@ final class HostViewModel: ObservableObject {
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
         // Bridge server → view model
-        server.$sessions.receive(on: RunLoop.main).sink { [weak self] in self?.sessions = $0 }.store(in: &cancellables)
-        server.$pendingPairs.receive(on: RunLoop.main).sink { [weak self] in self?.pendingPairs = $0 }.store(in: &cancellables)
-        server.$udpPeer.receive(on: RunLoop.main).sink { [weak self] in self?.udpPeer = $0 }.store(in: &cancellables)
+        server.$sessions
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.sessions = $0 }
+            .store(in: &cancellables)
+        server.$pendingPairs
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.pendingPairs = $0 }
+            .store(in: &cancellables)
+        server.$udpPeer
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.udpPeer = $0 }
+            .store(in: &cancellables)
     }
 
     func toggle() {
@@ -68,15 +75,15 @@ final class HostViewModel: ObservableObject {
         t.setEventHandler { [weak self] in
             guard let self else { return }
             let on = BeamConfig.isBroadcastOn()
-            Task { @MainActor in if on != self.broadcastOn { self.broadcastOn = on } }
+            Task { @MainActor in
+                if on != self.broadcastOn { self.broadcastOn = on }
+            }
         }
         t.resume()
         pollTimer = t
     }
 
-    private func stopBroadcastPoll() {
-        pollTimer?.cancel(); pollTimer = nil
-    }
+    private func stopBroadcastPoll() { pollTimer?.cancel(); pollTimer = nil }
 }
 
 struct HostRootView: View {
@@ -101,16 +108,18 @@ struct HostRootView: View {
                 Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
                     .onChange(of: model.autoAccept) { _, new in model.setAutoAccept(new) }
 
-                // Broadcast controls (ReplayKit picker)
+                // Broadcast controls (ReplayKit system picker)
                 broadcastSection
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Circle().frame(width: 10, height: 10)
                             .foregroundStyle(model.started ? .green : .secondary)
-                        Text(model.started ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)" : "Not advertising")
-                            .font(.callout).foregroundStyle(.secondary)
-                            .lineLimit(2).minimumScaleFactor(0.8)
+                        Text(model.started
+                             ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)"
+                             : "Not advertising")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .lineLimit(2).minimumScaleFactor(0.8)
                     }
 
                     if !model.sessions.isEmpty {
@@ -167,8 +176,10 @@ struct HostRootView: View {
             .navigationTitle("Host")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
-                        .lineLimit(1)
+                    Button { showLogs = true } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .lineLimit(1)
                 }
             }
             .task {
@@ -189,10 +200,11 @@ struct HostRootView: View {
                     .font(.headline)
                 Spacer()
             }
-            BroadcastPicker().frame(height: 44)
+            BroadcastPicker().frame(height: 44) // system Start/Stop button
             HStack(spacing: 6) {
                 Text("Active Viewer UDP peer:").foregroundStyle(.secondary)
-                Text(model.udpPeer ?? "none").font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+                Text(model.udpPeer ?? "none")
+                    .font(.caption).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
     }
@@ -225,5 +237,3 @@ private struct BroadcastPicker: UIViewRepresentable {
         return nil
     }
 }
-
-#Preview { HostRootView() }
