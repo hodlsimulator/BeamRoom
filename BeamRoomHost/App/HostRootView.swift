@@ -22,11 +22,27 @@ final class HostViewModel: ObservableObject {
     @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
     @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
 
+    // Mirror the server’s published state so SwiftUI actually updates.
+    @Published var sessions: [BeamControlServer.ActiveSession] = []
+    @Published var pendingPairs: [BeamControlServer.PendingPair] = []
+
     let server: BeamControlServer
     private var pollTimer: DispatchSourceTimer?
+    private var cancellables: Set<AnyCancellable> = []
 
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
+
+        // Bridge server → view model so the view updates when server changes.
+        server.$sessions
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.sessions = $0 }
+            .store(in: &cancellables)
+
+        server.$pendingPairs
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.pendingPairs = $0 }
+            .store(in: &cancellables)
     }
 
     func toggle() {
@@ -47,7 +63,8 @@ final class HostViewModel: ObservableObject {
     }
 
     func setAutoAccept(_ v: Bool) { server.autoAccept = v }
-    func accept(_ id: UUID) { server.accept(id) }
+
+    func accept(_ id: UUID)  { server.accept(id) }
     func decline(_ id: UUID) { server.decline(id) }
 
     // MARK: Broadcast poll (App Group flag → UI)
@@ -58,11 +75,8 @@ final class HostViewModel: ObservableObject {
         t.setEventHandler { [weak self] in
             guard let self = self else { return }
             let on = BeamConfig.isBroadcastOn()
-            // Hop to MainActor before touching @Published state
             Task { @MainActor in
-                if on != self.broadcastOn {
-                    self.broadcastOn = on
-                }
+                if on != self.broadcastOn { self.broadcastOn = on }
             }
         }
         t.resume()
@@ -89,6 +103,7 @@ struct HostRootView: View {
                 HStack {
                     TextField("Service Name", text: $model.serviceName)
                         .textFieldStyle(.roundedBorder)
+
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
                         .lineLimit(1)
@@ -105,16 +120,18 @@ struct HostRootView: View {
                     HStack {
                         Circle().frame(width: 10, height: 10)
                             .foregroundStyle(model.started ? .green : .secondary)
-                        Text(model.started ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)" : "Not advertising")
+                        Text(model.started
+                             ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)"
+                             : "Not advertising")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .minimumScaleFactor(0.8)
                     }
 
-                    if !model.server.sessions.isEmpty {
+                    if !model.sessions.isEmpty {
                         Text("Active Sessions").font(.headline)
-                        List(model.server.sessions) { s in
+                        List(model.sessions) { s in
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(s.id.uuidString)
@@ -127,7 +144,8 @@ struct HostRootView: View {
                                 }
                                 Spacer()
                                 Text(s.startedAt, style: .time)
-                                    .font(.footnote).foregroundStyle(.secondary)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         .listStyle(.plain)
@@ -135,12 +153,13 @@ struct HostRootView: View {
                     }
 
                     Text("Pair Requests").font(.headline)
-                    if model.server.pendingPairs.isEmpty {
+
+                    if model.pendingPairs.isEmpty {
                         Text("None yet.\nA Viewer will tap your name and send a 4-digit code.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     } else {
-                        List(model.server.pendingPairs) { p in
+                        List(model.pendingPairs) { p in
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Code: \(p.code)")
@@ -176,8 +195,10 @@ struct HostRootView: View {
             .navigationTitle("Host")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
-                        .lineLimit(1)
+                    Button { showLogs = true } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .lineLimit(1)
                 }
             }
             .task {
@@ -189,7 +210,6 @@ struct HostRootView: View {
     }
 
     // MARK: Broadcast UI
-
     @ViewBuilder
     private var broadcastSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -200,7 +220,6 @@ struct HostRootView: View {
                     .font(.headline)
                 Spacer()
             }
-
             BroadcastPicker()
                 .frame(height: 44)
         }
