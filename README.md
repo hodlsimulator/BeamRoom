@@ -2,7 +2,8 @@
 
 BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPad mirrors its screen to nearby **Viewers** using **Wi-Fi Aware** + **Network.framework**. Capture uses **ReplayKit** (Broadcast Upload Extension). Video is **H.264** (VideoToolbox). No internet, no accounts, no servers.
 
-> Current status (27 Sep 2025): **M1 (pairing) is working** end-to-end with heartbeats and session IDs. For now the control link runs over **infrastructure Wi-Fi** (same network) while we keep Aware for discovery; pure P2P is planned.
+> Current status (27 Sep 2025): **M1 (pairing) is working** end-to-end with heartbeats and session IDs.  
+> **M3 preview is live:** after pairing, the Host can send **synthetic test frames over UDP (~12 fps)** and the Viewer shows a **live preview with fps/kbps/drop stats**. Control still runs over **infrastructure Wi-Fi** (same network) while we keep Aware for discovery; pure P2P is planned.
 
 ---
 
@@ -64,7 +65,7 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
 
 ---
 
-## Build & Run (M1)
+## Build & Run (M1 + M3 preview)
 
 1. **Open the workspace**  
    Open `BeamRoom.xcworkspace` (not the individual `.xcodeproj`). You should see Host, Viewer and the Upload extension.
@@ -96,13 +97,14 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
    - With **Auto-accept** on (Host), pairing is immediate (for testing).  
    - Otherwise, the Host gets a **Pair Requests** row to **Accept**/**Decline**.
 
-7. **Result**  
-   The Viewer sheet flips to **Paired ✓**, showing:
-   - `Session: <UUID>`
-   - `Broadcast: On/Off` (live-pushed from Host)
-   - `Media UDP port: ####` (announced by Host)
+7. **M3 preview — test frames**  
+   On the **Host**, in **Test Stream (Fake Frames)**, tap **Start**.  
+   The **Viewer** automatically sends a UDP “hello”, the Host captures the peer, and you should see:
+   - **Preview** image animating (moving gradient)  
+   - **Stats** line: `fps • kbps • drops`  
+   If you stop the test stream on Host, the preview halts.
 
-> For M1, the control link uses infra **Wi-Fi** (same SSID), not AWDL. Discovery runs via Bonjour + Aware. P2P control is planned.
+> For now both **control** and **UDP test frames** run over infra **Wi-Fi** (same SSID). Discovery runs via Bonjour + Aware. P2P control/transport is planned.
 
 ---
 
@@ -112,8 +114,9 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
       Sources/BeamCore/
         AwareSupport.swift          # Wi-Fi Aware helpers
         BeamBrowser.swift           # Viewer discovery (NWBrowser + NetServiceBrowser)
-        BeamControlServer.swift     # Host TCP control server + Bonjour publish + UDP port announce
+        BeamControlServer.swift     # Host TCP control + Bonjour + UDP media (hello + test frames)
         BeamControlClient.swift     # Viewer TCP control client + heartbeats
+        UDPMediaClient.swift        # Viewer UDP receiver + BGRA test-frame decoder
         BeamMessages.swift          # HandshakeRequest/Response, Heartbeat, MediaParams
         BroadcastStatus.swift       # { "on": Bool }
         BeamTransportParameters.swift
@@ -122,10 +125,10 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
         BeamCore.swift              # Version banner (`BeamCore.hello()`)
 
     BeamRoomHost/
-      App/HostRootView.swift        # Publish/Stop, Auto-accept, Pair Requests, Broadcast picker
+      App/HostRootView.swift        # Publish/Stop, Auto-accept, Pair Requests, Broadcast picker, Test Stream controls
 
     BeamRoomViewer/
-      App/ViewerRootView.swift      # Discovery list, Pairing sheet, status
+      App/ViewerRootView.swift      # Discovery list, Pairing sheet, inline preview + stats
 
     BeamRoomBroadcastUpload/
       SampleHandler.swift           # Toggles “broadcast on/off” flag (M2 plumbing)
@@ -182,11 +185,11 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
 
 ---
 
-## Control protocol (M1)
+## Control protocol (M1 + M3 preview)
 
 **Transport**
 - **TCP** control: Host listens on **52345** (`NWListener`, infra Wi-Fi only).  
-- **UDP** media: Host opens an ephemeral UDP port and announces it to the Viewer.
+- **UDP** media (preview): Host opens an **ephemeral UDP port** and announces it to the Viewer.
 
 **Framing:** newline-delimited JSON (one JSON object per line).
 
@@ -214,6 +217,20 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
 
 ---
 
+## UDP test stream (preview wire format)
+
+- **Viewer → Host** one-shot hello after pairing: bytes `"BRHI!"` so the Host records the Viewer’s `(address, port)`.  
+- **Host → Viewer** frames at ~12 fps (infrastructure Wi-Fi):
+  - Header (big-endian):  
+        u32 magic = 'BMRM' (0x424D524D)  
+        u32 seq  
+        u16 width  
+        u16 height
+  - **Payload:** `width * height * 4` bytes **BGRA32** (premultipliedFirst, byteOrder32Little).  
+  - Current generator: animated gradient (preview only).
+
+---
+
 ## Verify Wi-Fi Aware (copy/paste)
 
 **Host (expect `Publish`,`Subscribe`)**
@@ -234,52 +251,33 @@ Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionari
 
 ---
 
-## Action plan (M1 → M3)
+## Action plan
 
-**M1 — Discovery & pairing (Wi-Fi Aware + control channel)** ✅
-- **Services & roles**
-  - Host: publish `_beamctl._tcp` (control) and `_beamroom._udp` (media).
-  - Viewer: subscribe to both; display nearby Hosts.
-- **Pairing UX**
-  - List discovered Hosts with device name + **4-digit code**.
-  - Tap Host → Host shows confirm prompt with the same code → accept to pair (or auto-accept for testing).
-- **Control channel (TCP)**
-  - Tiny JSON handshake, heartbeats every ~5s, reconnect on failure.
-- **Deliverables**
-  - Control server/client + Pairing UI + in-app log viewer.
+**M1 — Discovery & pairing (Wi-Fi Aware + control channel)** ✅  
+**M2 — Broadcast picker & capture plumbing (partial in place)**  
+- Host has system **Start Broadcast** (`RPSystemBroadcastPickerView`); broadcast **On/Off** pushed to Viewers.
+- Upload extension toggles an **App Group flag** on start/finish; no media yet.
 
-**M2 — Broadcast picker & capture plumbing (partial in place)**
-- **Host UI**
-  - System **Start Broadcast** button (`RPSystemBroadcastPickerView`) auto-detects the bundled Upload extension.
-  - **Broadcast On/Off** reflected in Host UI and pushed to Viewers over control.
-- **Upload extension**
-  - `SampleHandler` toggles an **App Group flag** on start/finish; no media yet.
-- **Next**
-  - Add a simple “UDP hello” from Viewer to Host immediately after M3 to verify reachability.
-
-**M3 — Fake frames end-to-end (prove transport)**
-- **Transport**
-  - Keep TCP for control; send **synthetic frames** on UDP at ~10–15 fps (e.g. colour bars/moving gradient).
-  - Viewer decodes and displays; record loss/jitter.
-- **Metrics**
-  - Overlay: fps, kbps, loss %, RTT.
-- **Then**
-  - Replace with real H.264 (Upload: `VTCompressionSession`; Viewer: `VTDecompressionSession`), then add ABR.
+**M3 — Preview (UDP hello + synthetic frames)** ✅  
+- Transport proven: UDP hello → host learns peer; **fake frames** flow Host→Viewer; inline preview + stats.  
+- Next: Replace synthetic frames with **real H.264** (Upload: `VTCompressionSession`; Viewer: `VTDecompressionSession`), then **ABR**.
 
 ---
 
 ## Troubleshooting (quick)
+- **Preview stays blank**  
+  Ensure Host **Test Stream** is **Started** and the Host shows a non-empty **UDP peer**. Both devices must be on the **same SSID**.  
 - **“profile doesn’t match com.apple.developer.wifi-aware”**  
-  Fix the entitlement **type** (must be an **array**), refresh/select a **Development** profile that includes Wi-Fi Aware, rebuild to a **device**.
+  Fix the entitlement **type** (must be an **array**), refresh/select a **Development** profile that includes Wi-Fi Aware, rebuild to a **device**.  
 - **Entitlements missing in app**  
-  Check **Build Settings → Code Signing Entitlements** path for both Debug and Release.
+  Check **Build Settings → Code Signing Entitlements** path for both Debug and Release.  
 - **Bonjour publish error −72000**  
-  We auto-retry; if persistent, toggle **Publish/Stop** once.
+  We auto-retry; if persistent, toggle **Publish/Stop** once.  
 - **Simulator shows up**  
   Always select a **physical device** for builds that you intend to verify.
 
 ---
 
 ## Notes
-- DRM/protected screens render **black by design** (ReplayKit).
-- For now the control socket is **Wi-Fi only**; AWDL-only control will come once M2/M3 are stable.
+- DRM/protected screens render **black by design** (ReplayKit).  
+- For now the control socket and preview UDP use **Wi-Fi only**; AWDL-only control will come once M2/M3 are stable.

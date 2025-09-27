@@ -5,7 +5,7 @@
 //  Created by . . on 9/21/25.
 //
 //  Publishes the control service, shows pending pair requests,
-//  and lets you toggle Auto-accept during testing.
+//  Broadcast picker, and a Test Stream (M3) toggle.
 //
 
 import SwiftUI
@@ -25,24 +25,22 @@ final class HostViewModel: ObservableObject {
     // Mirror the server’s published state so SwiftUI actually updates.
     @Published var sessions: [BeamControlServer.ActiveSession] = []
     @Published var pendingPairs: [BeamControlServer.PendingPair] = []
+    @Published var udpPeer: String? = nil
+    @Published var isStreaming: Bool = false
 
     let server: BeamControlServer
+
     private var pollTimer: DispatchSourceTimer?
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
 
-        // Bridge server → view model so the view updates when server changes.
-        server.$sessions
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.sessions = $0 }
-            .store(in: &cancellables)
-
-        server.$pendingPairs
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.pendingPairs = $0 }
-            .store(in: &cancellables)
+        // Bridge server → view model
+        server.$sessions.receive(on: RunLoop.main).sink { [weak self] in self?.sessions = $0 }.store(in: &cancellables)
+        server.$pendingPairs.receive(on: RunLoop.main).sink { [weak self] in self?.pendingPairs = $0 }.store(in: &cancellables)
+        server.$udpPeer.receive(on: RunLoop.main).sink { [weak self] in self?.udpPeer = $0 }.store(in: &cancellables)
+        server.$isStreaming.receive(on: RunLoop.main).sink { [weak self] in self?.isStreaming = $0 }.store(in: &cancellables)
     }
 
     func toggle() {
@@ -63,9 +61,11 @@ final class HostViewModel: ObservableObject {
     }
 
     func setAutoAccept(_ v: Bool) { server.autoAccept = v }
-
-    func accept(_ id: UUID)  { server.accept(id) }
+    func accept(_ id: UUID) { server.accept(id) }
     func decline(_ id: UUID) { server.decline(id) }
+
+    func startTestStream() { server.startTestStream() }
+    func stopTestStream()  { server.stopTestStream() }
 
     // MARK: Broadcast poll (App Group flag → UI)
     private func startBroadcastPoll() {
@@ -83,10 +83,7 @@ final class HostViewModel: ObservableObject {
         pollTimer = t
     }
 
-    private func stopBroadcastPoll() {
-        pollTimer?.cancel()
-        pollTimer = nil
-    }
+    private func stopBroadcastPoll() { pollTimer?.cancel(); pollTimer = nil }
 }
 
 struct HostRootView: View {
@@ -103,11 +100,9 @@ struct HostRootView: View {
                 HStack {
                     TextField("Service Name", text: $model.serviceName)
                         .textFieldStyle(.roundedBorder)
-
                     Button(model.started ? "Stop" : "Publish") { model.toggle() }
                         .buttonStyle(.borderedProminent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
+                        .lineLimit(1).minimumScaleFactor(0.9)
                 }
 
                 Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
@@ -116,17 +111,16 @@ struct HostRootView: View {
                 // Broadcast controls
                 broadcastSection
 
+                // Test stream controls (M3)
+                testStreamSection
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Circle().frame(width: 10, height: 10)
                             .foregroundStyle(model.started ? .green : .secondary)
-                        Text(model.started
-                             ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)"
-                             : "Not advertising")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.8)
+                        Text(model.started ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)" : "Not advertising")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .lineLimit(2).minimumScaleFactor(0.8)
                     }
 
                     if !model.sessions.isEmpty {
@@ -135,54 +129,42 @@ struct HostRootView: View {
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(s.id.uuidString)
-                                        .font(.footnote).monospaced()
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
+                                        .font(.footnote).monospaced().lineLimit(1).minimumScaleFactor(0.7)
                                     Text(s.remoteDescription)
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
                                 Text(s.startedAt, style: .time)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                    .font(.footnote).foregroundStyle(.secondary)
                             }
                         }
-                        .listStyle(.plain)
-                        .frame(maxHeight: 180)
+                        .listStyle(.plain).frame(maxHeight: 180)
                     }
 
                     Text("Pair Requests").font(.headline)
-
                     if model.pendingPairs.isEmpty {
                         Text("None yet.\nA Viewer will tap your name and send a 4-digit code.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .font(.callout).foregroundStyle(.secondary)
                     } else {
                         List(model.pendingPairs) { p in
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Code: \(p.code)")
-                                        .font(.title2).bold().monospaced()
-                                        .lineLimit(1)
+                                        .font(.title2).bold().monospaced().lineLimit(1)
                                     Text("conn#\(p.connID) • \(p.remoteDescription)")
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
                                 HStack(spacing: 8) {
                                     Button("Decline") { model.decline(p.id) }
                                         .buttonStyle(.bordered)
-                                        .lineLimit(1)
                                     Button("Accept") { model.accept(p.id) }
                                         .buttonStyle(.borderedProminent)
-                                        .lineLimit(1)
                                 }
                             }
                             .padding(.vertical, 4)
                         }
-                        .listStyle(.plain)
-                        .frame(minHeight: 120, maxHeight: 240)
+                        .listStyle(.plain).frame(minHeight: 120, maxHeight: 240)
                     }
                 }
 
@@ -195,10 +177,8 @@ struct HostRootView: View {
             .navigationTitle("Host")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
-                    }
-                    .lineLimit(1)
+                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
+                        .lineLimit(1)
                 }
             }
             .task {
@@ -210,8 +190,8 @@ struct HostRootView: View {
     }
 
     // MARK: Broadcast UI
-    @ViewBuilder
-    private var broadcastSection: some View {
+
+    @ViewBuilder private var broadcastSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Label(model.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
@@ -220,8 +200,31 @@ struct HostRootView: View {
                     .font(.headline)
                 Spacer()
             }
-            BroadcastPicker()
-                .frame(height: 44)
+            BroadcastPicker().frame(height: 44)
+        }
+    }
+
+    // MARK: Test stream UI (M3)
+
+    @ViewBuilder private var testStreamSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Test Stream (Fake Frames)", systemImage: "display")
+                    .font(.headline)
+                Spacer()
+                if model.isStreaming {
+                    Button("Stop") { model.stopTestStream() }.buttonStyle(.bordered)
+                } else {
+                    Button("Start") { model.startTestStream() }.buttonStyle(.borderedProminent)
+                        .disabled(!model.started)
+                }
+            }
+            HStack(spacing: 6) {
+                Text("UDP peer:")
+                    .foregroundStyle(.secondary)
+                Text(model.udpPeer ?? "none")
+                    .font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+            }
         }
     }
 }
@@ -235,7 +238,6 @@ private struct BroadcastPicker: UIViewRepresentable {
         return v
     }
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
-
     private static func findUploadExtensionBundleID() -> String? {
         guard let plugins = Bundle.main.builtInPlugInsURL else { return nil }
         let fm = FileManager.default
