@@ -4,563 +4,539 @@
 //
 //  Created by . . on 9/22/25.
 //
+//  Host-side TCP control server that publishes Bonjour, accepts Viewer handshakes,
+//  sends broadcast status + media params, and keeps the link alive with heartbeats.
+//
 
 import Foundation
 import Network
 import OSLog
 
-private let serverLog  = Logger(subsystem: BeamConfig.subsystemHost,   category: "control-server")
-private let bonjourLog = Logger(subsystem: BeamConfig.subsystemHost,   category: "bonjour")
+private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "control-server")
 
-public struct PendingPair: Identifiable, Equatable {
-    public let id = UUID()
-    public let code: String
-    public let receivedAt: Date
-    public let remoteDescription: String
-    fileprivate let connection: NWConnection
-    public let connID: Int
-
-    public static func == (lhs: PendingPair, rhs: PendingPair) -> Bool { lhs.id == rhs.id }
-
-    public init(code: String, remoteDescription: String, connection: NWConnection, connID: Int) {
-        self.code = code
-        self.receivedAt = Date()
-        self.remoteDescription = remoteDescription
-        self.connection = connection
-        self.connID = connID
-    }
-}
-
-public struct ActiveSession: Identifiable, Equatable {
-    public let id: UUID
-    public let startedAt: Date
-    public let remoteDescription: String
-}
-
+@MainActor
 public final class BeamControlServer: NSObject, ObservableObject {
-    // UI state
-    @Published public private(set) var isRunning: Bool = false
-    @Published public private(set) var publishedName: String?
-    @Published public private(set) var pendingPairs: [PendingPair] = []
+
+    // MARK: View-facing models
+
+    public struct PendingPair: Identifiable, Equatable {
+        public let id: UUID
+        public let connID: Int
+        public let code: String
+        public let remoteDescription: String
+        public let requestedAt: Date
+    }
+
+    public struct ActiveSession: Identifiable, Equatable {
+        public let id: UUID
+        public let remoteDescription: String
+        public let startedAt: Date
+    }
+
+    // MARK: Published state
+
     @Published public private(set) var sessions: [ActiveSession] = []
+    @Published public private(set) var pendingPairs: [PendingPair] = []
 
-    // Networking
-    private var listener: NWListener?
-    private var netService: NetService?
+    // MARK: Configuration
 
-    // Media UDP
-    private var udpListener: NWListener?
-    private var mediaService: NetService?
-    private var currentUDPPort: UInt16?
-
-    // Book-keeping
-    private var pendingByID: [UUID: PendingPair] = [:]
-    private var connections: [NWConnection] = []
-    private var rxBuffers: [ObjectIdentifier: Data] = [:]
-    private var connSeq: Int = 0
-    private var connIDs: [ObjectIdentifier: Int] = [:]
-    private var sessionByConn: [ObjectIdentifier: UUID] = [:]
-    private var pendingIDByConn: [ObjectIdentifier: UUID] = [:]
-
-    // Heartbeats (outbound from host)
-    private var hbTimer: DispatchSourceTimer?
-    private let hbInterval: TimeInterval = 5
-
-    // Broadcast/Media polling
-    private var pollTimer: DispatchSourceTimer?
-    private var lastPushedBroadcastOn: Bool = BeamConfig.isBroadcastOn()
-    private var lastPushedUDPPort: UInt16? = BeamConfig.getBroadcastUDPPort()
-
-    // Bonjour recovery (control service)
-    private var bonjourName: String?
-    private var bonjourBackoffAttempt: Int = 0
-
-    // Liveness diagnostics (inbound from viewer)
-    private var livenessTimer: DispatchSourceTimer?
-    private let livenessGrace: TimeInterval = 15
-    private var lastRxAtByConn: [ObjectIdentifier: Date] = [:]
-
-    // Auto-accept control (toggle from UI)
     public var autoAccept: Bool
 
-    public init(autoAccept: Bool = BeamConfig.autoAcceptDuringTest) {
+    // MARK: Internals
+
+    private var listener: NWListener?
+    private var netService: NetService?
+    private var netServiceDelegateProxy: NetServiceDelegateProxy?
+    private var republishAttempts = 0
+
+    private var connections: [Int: Conn] = [:]
+    private var nextConnID = 1
+
+    // Broadcast poll → push to clients when it changes
+    private var lastBroadcastOn: Bool = BeamConfig.isBroadcastOn()
+    private var broadcastPoll: DispatchSourceTimer?
+
+    // UDP media (port announcement only in this server)
+    private var media: MediaUDP?
+
+    public init(autoAccept: Bool = false) {
         self.autoAccept = autoAccept
         super.init()
     }
 
-    private func cid(for conn: NWConnection) -> Int { connIDs[ObjectIdentifier(conn)] ?? -1 }
+    // MARK: Lifecycle
 
-    // MARK: Start/stop
-
-    @MainActor
     public func start(serviceName: String) throws {
         guard listener == nil else { throw BeamError.alreadyRunning }
 
-        // ⬅︎ Force infra Wi-Fi for the listener (no AWDL/cellular)
-        let params = BeamTransportParameters.tcpInfraWiFi()
-        guard let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort) else {
-            throw BeamError.connectionFailed("Bad control port")
-        }
+        // TCP listener restricted to infrastructure Wi-Fi
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        let params = NWParameters(tls: nil, tcp: tcp)
+        params.includePeerToPeer = false
+        params.requiredInterfaceType = .wifi
+        params.prohibitedInterfaceTypes = [.cellular]
 
-        // Control listener
-        let l = try NWListener(using: params, on: port)
-        self.listener = l
+        let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort)!
+        let lis = try NWListener(using: params, on: port)
+        listener = lis
 
-        l.stateUpdateHandler = { state in
-            serverLog.debug("Listener state: \(String(describing: state))")
-            BeamLog.debug("Host listener state=\(String(describing: state))", tag: "host")
-            if case .failed(let err) = state {
-                serverLog.error("Listener failed: \(err.localizedDescription, privacy: .public)")
-                BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
-            }
-        }
-
-        l.newConnectionHandler = { [weak self] conn in
-            guard let self else { return }
+        lis.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
-                self.connSeq += 1
-                let key = ObjectIdentifier(conn)
-                self.connIDs[key] = self.connSeq
-                let cid = self.connSeq
-                let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
-                let ps = pathSummary(conn.currentPath)
-                BeamLog.info("conn#\(cid) accepted (remote=\(remote), path=\(ps))", tag: "host")
-
-                // Path + viability diagnostics
-                conn.viabilityUpdateHandler = { isViable in BeamLog.debug("conn#\(cid) viable=\(isViable)", tag: "host") }
-                conn.betterPathUpdateHandler = { hasBetter in BeamLog.debug("conn#\(cid) betterPath=\(hasBetter)", tag: "host") }
-                conn.pathUpdateHandler = { path in BeamLog.debug("conn#\(cid) pathUpdate=\(pathSummary(path))", tag: "host") }
-
-                // Seed liveness timestamp so we don’t instantly trip before first rx
-                self.lastRxAtByConn[key] = Date()
-                self.handleIncoming(conn)
+                guard let self else { return }
+                serverLog.debug("Listener state \(String(describing: state))")
+                switch state {
+                case .ready:
+                    BeamLog.info("Host listener state=ready", tag: "host")
+                case .failed(let err):
+                    BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
+                default:
+                    break
+                }
             }
         }
 
-        l.start(queue: .main)
+        lis.newConnectionHandler = { [weak self] nw in
+            Task { @MainActor in
+                guard let self else { return }
+                let id = self.nextConnID
+                self.nextConnID += 1
+                let c = Conn(id: id, nw: nw, server: self)
+                self.connections[id] = c
+                c.start()
+            }
+        }
 
-        // Publish Bonjour (control)
-        let type = BeamConfig.controlService.hasSuffix(".") ? BeamConfig.controlService : BeamConfig.controlService + "."
-        let ns = NetService(domain: "local.", type: type, name: serviceName, port: Int32(BeamConfig.controlPort))
-        ns.includesPeerToPeer = true
-        ns.delegate = self
-        ns.publish()
-        self.netService = ns
-        self.publishedName = serviceName
-        self.bonjourName = serviceName
-        self.bonjourBackoffAttempt = 0
+        lis.start(queue: .main)
 
-        // Start media UDP listener (assigns a port and publishes Bonjour)
-        try startMediaUDP(serviceName: serviceName)
+        // Bonjour publish
+        publishBonjour(name: serviceName, type: BeamConfig.controlService, port: Int(BeamConfig.controlPort))
 
-        startHeartbeats()
-        startLivenessWatch()
+        // UDP media: create a correct UDP listener and announce port
+        let media = MediaUDP()
+        self.media = media
+        media.start(
+            onReady: { [weak self] udpPort in
+                Task { @MainActor in
+                    guard let self else { return }
+                    BeamLog.info("Media UDP ready on port \(udpPort)", tag: "host")
+                    BeamConfig.setBroadcastUDPPort(udpPort)
+                    // Push MediaParams to all paired clients
+                    for conn in self.connections.values where conn.sessionID != nil {
+                        conn.sendMediaParams(udpPort: udpPort)
+                    }
+                }
+            },
+            onError: { err in
+                Task { @MainActor in
+                    BeamLog.error("Media UDP failed: \(err.localizedDescription)", tag: "host")
+                }
+            }
+        )
 
-        self.isRunning = true
-        serverLog.info("Control server started on \(BeamConfig.controlPort), bonjour '\(serviceName)'")
+        // Broadcast poll → inform all clients live
+        startBroadcastPoll()
+
         BeamLog.info("Host advertising '\(serviceName)' \(BeamConfig.controlService) on \(BeamConfig.controlPort)", tag: "host")
     }
 
-    @MainActor
     public func stop() {
-        stopHeartbeats()
-        stopLivenessWatch()
+        stopBroadcastPoll()
+        media?.stop(); media = nil
 
-        mediaService?.stop(); mediaService = nil
-        udpListener?.cancel(); udpListener = nil
-        BeamConfig.setBroadcastUDPPort(nil)
-
-        netService?.stop(); netService = nil
-        listener?.cancel(); listener = nil
-
-        for c in connections { c.cancel() }
+        // Close children first
+        for (_, c) in connections {
+            c.close()
+        }
         connections.removeAll()
-        rxBuffers.removeAll()
-        lastRxAtByConn.removeAll()
-        pendingPairs.removeAll()
-        pendingByID.removeAll()
-        connIDs.removeAll()
-        sessionByConn.removeAll()
-        pendingIDByConn.removeAll()
 
-        publishedName = nil
-        isRunning = false
-
-        serverLog.info("Control server stopped")
-        BeamLog.info("Host stopped", tag: "host")
+        listener?.cancel(); listener = nil
+        unpublishBonjour()
     }
 
-    // MARK: UI actions
+    // MARK: Accept / Decline from UI
 
-    @MainActor
-    public func accept(_ id: UUID) {
-        guard let p = pendingByID.removeValue(forKey: id) else { return }
-        pendingPairs.removeAll { $0.id == id }
+    public func accept(_ pendingID: UUID) {
+        guard let conn = findConn(for: pendingID) else { return }
+        acceptConnection(conn, code: conn.pendingCode ?? "----")
+    }
 
+    public func decline(_ pendingID: UUID) {
+        guard let conn = findConn(for: pendingID) else { return }
+        removePending(pendingID)
+        conn.sendHandshake(ok: false, sessionID: nil, message: "Declined", udpPort: nil)
+        conn.close()
+    }
+
+    // MARK: Internal utilities
+
+    fileprivate func acceptConnection(_ conn: Conn, code: String) {
+        if let pid = conn.pendingPairID { removePending(pid) }
         let sid = UUID()
-        let udp = currentUDPPort
-        let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: udp, message: "OK")
-        sendResponse(resp, over: p.connection)
-
-        // Push current broadcast status + media params (M2 + M3)
-        pushBroadcastStatus(to: p.connection)
-        if let udp { pushMediaParams(to: p.connection, udpPort: udp) }
-
-        sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: p.remoteDescription))
-        sessionByConn[ObjectIdentifier(p.connection)] = sid
-        BeamLog.info("conn#\(p.connID) ACCEPT code \(p.code) → session \(sid)", tag: "host")
+        conn.sessionID = sid
+        sessions.append(ActiveSession(id: sid, remoteDescription: conn.remoteDescription, startedAt: Date()))
+        // Handshake response with udpPort if known
+        let udpPort = BeamConfig.getBroadcastUDPPort()
+        conn.sendHandshake(ok: true, sessionID: sid, message: nil, udpPort: udpPort)
+        // Also send current broadcast state immediately
+        conn.sendBroadcast(on: BeamConfig.isBroadcastOn())
     }
 
-    @MainActor
-    public func decline(_ id: UUID) {
-        guard let p = pendingByID.removeValue(forKey: id) else { return }
+    private func findConn(for pendingID: UUID) -> Conn? {
+        for (_, c) in connections {
+            if c.pendingPairID == pendingID { return c }
+        }
+        return nil
+    }
+
+    private func removePending(_ id: UUID) {
         pendingPairs.removeAll { $0.id == id }
-
-        let resp = HandshakeResponse(ok: false, sessionID: nil, udpPort: nil, message: "Declined")
-        sendResponse(resp, over: p.connection)
-        BeamLog.warn("conn#\(p.connID) DECLINE code \(p.code) from \(p.remoteDescription)", tag: "host")
-        p.connection.cancel()
     }
 
-    // MARK: Connection handling
+    fileprivate func queuePending(for conn: Conn, code: String) {
+        let p = PendingPair(
+            id: UUID(),
+            connID: conn.id,
+            code: code,
+            remoteDescription: conn.remoteDescription,
+            requestedAt: Date()
+        )
+        conn.pendingPairID = p.id
+        conn.pendingCode = code
+        pendingPairs.append(p)
+    }
 
-    @MainActor
-    private func handleIncoming(_ conn: NWConnection) {
-        connections.append(conn)
-        let key = ObjectIdentifier(conn)
-        rxBuffers[key] = Data()
-        let cid = self.cid(for: conn)
-
-        conn.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            let ps = pathSummary(conn.currentPath)
-            BeamLog.debug("conn#\(cid) state=\(String(describing: state)) path=\(ps)", tag: "host")
-            if case .failed(let err) = state {
-                serverLog.error("Incoming failed: \(err.localizedDescription, privacy: .public)")
-                BeamLog.error("conn#\(cid) failed: \(err.localizedDescription)", tag: "host")
-            }
+    fileprivate func connectionClosed(_ conn: Conn) {
+        if let sid = conn.sessionID {
+            sessions.removeAll { $0.id == sid }
         }
-
-        conn.start(queue: .main)
-        receiveLoop(conn)
+        if let pid = conn.pendingPairID {
+            pendingPairs.removeAll { $0.id == pid }
+        }
+        connections.removeValue(forKey: conn.id)
     }
 
-    private func receiveLoop(_ conn: NWConnection) {
-        let key = ObjectIdentifier(conn)
-        let cid = self.cid(for: conn)
+    // MARK: Bonjour
 
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isEOF, error in
-            guard let self else { return }
+    private func publishBonjour(name: String, type: String, port: Int) {
+        unpublishBonjour()
 
-            if let data, !data.isEmpty {
+        let svcType = type.hasSuffix(".") ? type : type + "."
+        let ns = NetService(domain: "local.", type: svcType, name: name, port: Int32(port))
+        ns.includesPeerToPeer = true
+
+        // Use a proxy to avoid having the @MainActor class conform to NetServiceDelegate.
+        let proxy = NetServiceDelegateProxy(
+            onPublished: { [weak self] sender in
                 Task { @MainActor in
-                    // Liveness: any inbound traffic refreshes the timestamp
-                    self.lastRxAtByConn[key] = Date()
-                    BeamLog.debug("conn#\(cid) rx \(data.count) bytes", tag: "host")
-
-                    var buf = self.rxBuffers[key] ?? Data()
-                    for line in Frame.drainLines(buffer: &buf, incoming: data) {
-                        self.handleLine(line, from: conn)
-                    }
-                    self.rxBuffers[key] = buf
+                    BeamLog.info("Bonjour published: \(sender.name)", tag: "host")
+                    self?.republishAttempts = 0
+                }
+            },
+            onDidNotPublish: { [weak self] sender, errorDict in
+                Task { @MainActor in
+                    guard let self else { return }
+                    BeamLog.error("Bonjour publish error: \(errorDict)", tag: "host")
+                    self.republishAttempts += 1
+                    BeamLog.warn("Bonjour republish in 1s (attempt \(self.republishAttempts))", tag: "host")
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+                    sender.stop()
+                    self.netService = nil
+                    self.publishBonjour(name: sender.name, type: sender.type, port: Int(sender.port))
                 }
             }
+        )
+        netServiceDelegateProxy = proxy
+        ns.delegate = proxy
+        self.netService = ns
+        ns.publish()
 
-            if isEOF || error != nil {
-                Task { @MainActor in
-                    // Clean up pending for this connection
-                    if let pid = self.pendingIDByConn.removeValue(forKey: key) {
-                        self.pendingByID.removeValue(forKey: pid)
-                        self.pendingPairs.removeAll { $0.id == pid }
+        republishAttempts = 0
+    }
+
+    private func unpublishBonjour() {
+        netService?.stop()
+        netService?.delegate = nil
+        netService = nil
+        netServiceDelegateProxy = nil
+    }
+
+    // MARK: Broadcast poll
+
+    private func startBroadcastPoll() {
+        stopBroadcastPoll()
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 1, repeating: 1)
+        t.setEventHandler { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                let on = BeamConfig.isBroadcastOn()
+                if on != self.lastBroadcastOn {
+                    self.lastBroadcastOn = on
+                    for conn in self.connections.values where conn.sessionID != nil {
+                        conn.sendBroadcast(on: on)
                     }
-                    // Clean up active session for this connection
-                    if let sid = self.sessionByConn.removeValue(forKey: key) {
-                        self.sessions.removeAll { $0.id == sid }
-                    }
-                    self.rxBuffers.removeValue(forKey: key)
-                    self.lastRxAtByConn.removeValue(forKey: key)
-                    BeamLog.warn("conn#\(cid) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
-                    conn.cancel()
-                    self.connections.removeAll { $0 === conn }
                 }
-                return
             }
+        }
+        t.resume()
+        broadcastPoll = t
+    }
 
-            self.receiveLoop(conn)
+    private func stopBroadcastPoll() {
+        broadcastPoll?.cancel()
+        broadcastPoll = nil
+    }
+}
+
+// MARK: - NetServiceDelegate proxy (non-actor, forwards to MainActor)
+
+private final class NetServiceDelegateProxy: NSObject, NetServiceDelegate {
+    typealias PublishedHandler = (NetService) -> Void
+    typealias DidNotPublishHandler = (NetService, [String : NSNumber]) -> Void
+
+    private let onPublished: PublishedHandler?
+    private let onDidNotPublish: DidNotPublishHandler?
+
+    init(onPublished: PublishedHandler?, onDidNotPublish: DidNotPublishHandler?) {
+        self.onPublished = onPublished
+        self.onDidNotPublish = onDidNotPublish
+        super.init()
+    }
+
+    func netServiceDidPublish(_ sender: NetService) {
+        onPublished?(sender)
+    }
+
+    func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
+        onDidNotPublish?(sender, errorDict)
+    }
+}
+
+// MARK: - Per-connection wrapper
+
+@MainActor
+private final class Conn {
+    let id: Int
+    let nw: NWConnection
+    weak var server: BeamControlServer?
+
+    var rxBuffer = Data()
+    var hbTimer: DispatchSourceTimer?
+
+    var pendingPairID: UUID?
+    var pendingCode: String?
+    var sessionID: UUID?
+
+    var remoteDescription: String {
+        nw.endpoint.debugDescription
+    }
+
+    init(id: Int, nw: NWConnection, server: BeamControlServer) {
+        self.id = id
+        self.nw = nw
+        self.server = server
+    }
+
+    func start() {
+        nw.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in
+                guard let self else { return }
+                let ps = pathSummary(self.nw.currentPath)
+                switch state {
+                case .preparing:
+                    BeamLog.debug("conn#\(self.id) state=preparing path=\(ps)", tag: "host")
+                case .ready:
+                    BeamLog.debug("conn#\(self.id) state=ready path=\(ps)", tag: "host")
+                    BeamLog.info("conn#\(self.id) accepted (remote=\(self.remoteDescription), path=\(ps))", tag: "host")
+                    self.receiveLoop()
+                    self.startHeartbeats()
+                case .failed(let err):
+                    BeamLog.error("conn#\(self.id) failed: \(err.localizedDescription)", tag: "host")
+                    self.close()
+                case .cancelled:
+                    BeamLog.warn("conn#\(self.id) state=cancelled path=-", tag: "host")
+                default:
+                    break
+                }
+            }
+        }
+        nw.start(queue: .main)
+    }
+
+    func close() {
+        stopHeartbeats()
+        nw.cancel()
+        server?.connectionClosed(self)
+    }
+
+    private func receiveLoop() {
+        nw.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isEOF, error in
+            Task { @MainActor in
+                guard let self else { return }
+
+                if let data, !data.isEmpty {
+                    for line in Frame.drainLines(buffer: &self.rxBuffer, incoming: data) {
+                        self.handleLine(line)
+                    }
+                }
+
+                if isEOF || error != nil {
+                    BeamLog.warn("conn#\(self.id) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
+                    self.close()
+                    return
+                }
+                self.receiveLoop()
+            }
         }
     }
 
-    @MainActor
-    private func handleLine(_ line: Data, from conn: NWConnection) {
-        let cid = self.cid(for: conn)
-
-        // 0) Heartbeat from viewer
-        if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
-            BeamLog.debug("conn#\(cid) hb", tag: "host")
-            return
-        }
-
-        // 1) Handshake
+    private func handleLine(_ line: Data) {
+        // 1) Handshake (Viewer → Host)
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
-            let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
-            let key = ObjectIdentifier(conn)
-
-            if self.autoAccept {
-                let sid = UUID()
-                let udp = currentUDPPort
-                let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: udp, message: "OK")
-                sendResponse(resp, over: conn)
-
-                // Push current broadcast status + media params (M2 + M3)
-                pushBroadcastStatus(to: conn)
-                if let udp { pushMediaParams(to: conn, udpPort: udp) }
-
-                sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: remote))
-                sessionByConn[key] = sid
-                BeamLog.info("conn#\(cid) AUTO-ACCEPT code \(req.code) → session \(sid)", tag: "host")
+            // Only accept Viewer role
+            guard req.role.rawValue == "viewer" else {
+                sendHandshake(ok: false, sessionID: nil, message: "Invalid role", udpPort: nil)
                 return
             }
 
-            // Manual flow: track pending
-            let p = PendingPair(code: req.code, remoteDescription: remote, connection: conn, connID: cid)
-            pendingByID[p.id] = p
-            pendingIDByConn[key] = p.id
-            pendingPairs.append(p)
+            // If already paired, just acknowledge with the existing session
+            if let sid = sessionID {
+                sendHandshake(ok: true, sessionID: sid, message: "Already paired", udpPort: BeamConfig.getBroadcastUDPPort())
+                return
+            }
 
-            serverLog.info("Pending pair from \(remote, privacy: .public) code \(req.code, privacy: .public)")
-            BeamLog.info("conn#\(cid) handshake code \(req.code) (pending=\(pendingPairs.count))", tag: "host")
+            // Queue for accept, or auto-accept in test mode
+            if let server, server.autoAccept {
+                BeamLog.info("conn#\(id) AUTO-ACCEPT code \(req.code)", tag: "host")
+                server.acceptConnection(self, code: req.code)
+            } else {
+                BeamLog.info("conn#\(id) handshake code \(req.code) (pending=1)", tag: "host")
+                server?.queuePending(for: self, code: req.code)
+                // Viewer has a timeout; no immediate reply here.
+            }
             return
         }
 
-        serverLog.error("Invalid line on control connection")
-        BeamLog.error("conn#\(cid) invalid frame", tag: "host")
+        // 2) Heartbeat (Viewer → Host)
+        if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
+            BeamLog.debug("conn#\(id) hb", tag: "host")
+            return
+        }
+
+        // Unknown frame – ignore (keeps protocol resilient)
     }
 
-    @MainActor
-    private func sendResponse(_ resp: HandshakeResponse, over conn: NWConnection) {
-        let cid = self.cid(for: conn)
+    // MARK: Sending helpers
+
+    func sendHandshake(ok: Bool, sessionID: UUID?, message: String?, udpPort: UInt16?) {
+        let resp = HandshakeResponse(ok: ok, sessionID: sessionID, udpPort: udpPort, message: message)
+        send(resp, note: "response ok=\(ok)")
+    }
+
+    func sendBroadcast(on: Bool) {
+        let payload = BroadcastStatus(on: on)
         do {
-            let bytes = try Frame.encodeLine(resp)
-            conn.send(content: bytes, completion: .contentProcessed { _ in
-                BeamLog.debug("conn#\(cid) sent \(bytes.count) bytes (response ok=\(resp.ok))", tag: "host")
+            let bytes = try Frame.encodeLine(payload)
+            nw.send(content: bytes, completion: .contentProcessed { _ in
+                BeamLog.debug("conn#\(self.id) sent 13 bytes (broadcast=\(on))", tag: "host")
             })
-            if !resp.ok {
-                conn.cancel()
+        } catch {
+            BeamLog.error("conn#\(id) send encode fail: \(error.localizedDescription)", tag: "host")
+        }
+    }
+
+    func sendMediaParams(udpPort: UInt16) {
+        send(MediaParams(udpPort: udpPort), note: "mediaParams udp=\(udpPort)")
+    }
+
+    private func send<T: Encodable>(_ payload: T, note: String) {
+        do {
+            let bytes = try Frame.encodeLine(payload)
+            nw.send(content: bytes, completion: .contentProcessed { _ in
+                // small, frequent messages; no extra logging here
+            })
+            if payload is HandshakeResponse {
+                BeamLog.debug("conn#\(self.id) sent 78 bytes (\(note))", tag: "host")
             }
         } catch {
-            serverLog.error("Failed to encode response: \(error.localizedDescription, privacy: .public)")
-            BeamLog.error("conn#\(cid) send failed: \(error.localizedDescription)", tag: "host")
+            BeamLog.error("conn#\(id) send encode fail: \(error.localizedDescription)", tag: "host")
         }
     }
 
-    // MARK: Broadcast status + media params push
+    // MARK: Heartbeats
 
-    private func pushBroadcastStatus(to conn: NWConnection) {
-        let on = BeamConfig.isBroadcastOn()
-        do {
-            let bytes = try Frame.encodeLine(BroadcastStatus(on: on))
-            conn.send(content: bytes, completion: .contentProcessed { _ in
-                BeamLog.debug("conn#\(self.cid(for: conn)) sent \(bytes.count) bytes (broadcast=\(on))", tag: "host")
-            })
-        } catch {
-            BeamLog.error("broadcast status encode fail: \(error.localizedDescription)", tag: "host")
-        }
-    }
-
-    private func pushBroadcastStatusToAll() {
-        for c in connections { pushBroadcastStatus(to: c) }
-    }
-
-    private func pushMediaParams(to conn: NWConnection, udpPort: UInt16) {
-        do {
-            let bytes = try Frame.encodeLine(MediaParams(udpPort: udpPort))
-            conn.send(content: bytes, completion: .contentProcessed { _ in
-                BeamLog.debug("conn#\(self.cid(for: conn)) sent \(bytes.count) bytes (media udp=\(udpPort))", tag: "host")
-            })
-        } catch {
-            BeamLog.error("media params encode fail: \(error.localizedDescription)", tag: "host")
-        }
-    }
-
-    private func pushMediaParamsToAll(udpPort: UInt16) {
-        for c in connections { pushMediaParams(to: c, udpPort: udpPort) }
-    }
-
-    // MARK: Heartbeats + poll
-
-    @MainActor
     private func startHeartbeats() {
         stopHeartbeats()
-
-        // Outbound heartbeats to all viewers
         let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + hbInterval, repeating: hbInterval)
+        t.schedule(deadline: .now() + 2, repeating: 5)
         t.setEventHandler { [weak self] in
             guard let self else { return }
-            for c in self.connections {
-                do {
-                    let bytes = try Frame.encodeLine(Heartbeat())
-                    let id = self.cid(for: c)
-                    c.send(content: bytes, completion: .contentProcessed { _ in
-                        BeamLog.debug("conn#\(id) sent \(bytes.count) bytes (hb)", tag: "host")
-                    })
-                } catch {
-                    BeamLog.error("hb encode fail: \(error.localizedDescription)", tag: "host")
-                }
+            do {
+                let bytes = try Frame.encodeLine(Heartbeat())
+                self.nw.send(content: bytes, completion: .contentProcessed { _ in
+                    BeamLog.debug("conn#\(self.id) sent 9 bytes (hb)", tag: "host")
+                })
+            } catch {
+                BeamLog.error("hb encode fail: \(error.localizedDescription)", tag: "host")
             }
         }
         t.resume()
         hbTimer = t
-
-        // Poll broadcast flag and UDP port and push when they change
-        let p = DispatchSource.makeTimerSource(queue: .main)
-        p.schedule(deadline: .now() + 1, repeating: 1)
-        p.setEventHandler { [weak self] in
-            guard let self else { return }
-            let on = BeamConfig.isBroadcastOn()
-            let port = BeamConfig.getBroadcastUDPPort()
-            if on != self.lastPushedBroadcastOn {
-                self.lastPushedBroadcastOn = on
-                self.pushBroadcastStatusToAll()
-            }
-            if port != self.lastPushedUDPPort, let udp = port {
-                self.lastPushedUDPPort = udp
-                self.currentUDPPort = udp
-                self.pushMediaParamsToAll(udpPort: udp)
-            }
-        }
-        p.resume()
-        pollTimer = p
     }
 
-    @MainActor
     private func stopHeartbeats() {
-        hbTimer?.cancel(); hbTimer = nil
-        pollTimer?.cancel(); pollTimer = nil
+        hbTimer?.cancel()
+        hbTimer = nil
     }
+}
 
-    // MARK: Liveness diagnostics (viewer → host)
+// MARK: - UDP media listener (port announce only)
 
-    @MainActor
-    private func startLivenessWatch() {
-        stopLivenessWatch()
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + livenessGrace, repeating: livenessGrace)
-        t.setEventHandler { [weak self] in
-            guard let self else { return }
-            let now = Date()
-            for c in self.connections {
-                let key = ObjectIdentifier(c)
-                let last = self.lastRxAtByConn[key] ?? now
-                let gap = now.timeIntervalSince(last)
-                if gap > self.livenessGrace {
-                    let id = self.cid(for: c)
-                    BeamLog.warn("LIVENESS: no viewer traffic on conn#\(id) for \(Int(gap))s; closing", tag: "host")
+private final class MediaUDP {
+    private var listener: NWListener?
 
-                    self.lastRxAtByConn.removeValue(forKey: key)
-                    if let pid = self.pendingIDByConn.removeValue(forKey: key) {
-                        self.pendingByID.removeValue(forKey: pid)
-                        self.pendingPairs.removeAll { $0.id == pid }
+    func start(
+        onReady: @Sendable @escaping (UInt16) -> Void,
+        onError: @Sendable @escaping (Error) -> Void
+    ) {
+        do {
+            // Ephemeral UDP port; avoid raw 0 (which triggers NWError 22 if misused).
+            let params = NWParameters.udp
+            params.requiredInterfaceType = .wifi
+            params.includePeerToPeer = false
+
+            // Use the port-less initializer; the system assigns an ephemeral port.
+            let lis = try NWListener(using: params)
+            listener = lis
+
+            lis.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    if let p = lis.port?.rawValue {
+                        onReady(p)
                     }
-                    if let sid = self.sessionByConn.removeValue(forKey: key) {
-                        self.sessions.removeAll { $0.id == sid }
-                    }
-                    c.cancel()
-                    self.connections.removeAll { $0 === c }
-                    self.rxBuffers.removeValue(forKey: key)
+                case .failed(let err):
+                    onError(err)
+                default:
+                    break
                 }
             }
-        }
-        t.resume()
-        livenessTimer = t
-    }
 
-    @MainActor
-    private func stopLivenessWatch() {
-        livenessTimer?.cancel()
-        livenessTimer = nil
-    }
-
-    // MARK: Media UDP listener + Bonjour
-
-    private func startMediaUDP(serviceName: String) throws {
-        // Bind UDP on any available port; allow AWDL too for resilience
-        let udpOpts = NWProtocolUDP.Options()
-        let params = NWParameters(dtls: nil, udp: udpOpts)
-        params.includePeerToPeer = true
-
-        let u = try NWListener(using: params)
-        self.udpListener = u
-
-        u.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                guard let port = u.port?.rawValue else { return }
-                self.currentUDPPort = port
-                BeamConfig.setBroadcastUDPPort(port)
-                BeamLog.info("Media UDP ready on \(port)", tag: "host")
-
-                // Publish media Bonjour
-                let type = BeamConfig.mediaService.hasSuffix(".") ? BeamConfig.mediaService : BeamConfig.mediaService + "."
-                let ns = NetService(domain: "local.", type: type, name: serviceName, port: Int32(port))
-                ns.includesPeerToPeer = true
-                ns.delegate = self
-                ns.publish()
-                self.mediaService = ns
-
-                // Also push to any already-connected viewers
-                self.pushMediaParamsToAll(udpPort: port)
-
-            case .failed(let err):
-                BeamLog.error("Media UDP failed: \(err.localizedDescription)", tag: "host")
-            default:
-                break
+            // For UDP, incoming “connections” represent remote addresses that send us a datagram.
+            lis.newConnectionHandler = { conn in
+                // We don't keep these yet – media path will manage sockets.
+                conn.cancel()
             }
-        }
 
-        // No per-connection handler needed for UDP.
-        u.start(queue: .main)
+            lis.start(queue: .main)
+        } catch {
+            onError(error)
+        }
+    }
+
+    func stop() {
+        listener?.cancel()
+        listener = nil
     }
 }
-
-// MARK: Bonjour delegate + recovery
-
-extension BeamControlServer: NetServiceDelegate {
-    public func netServiceDidPublish(_ sender: NetService) {
-        bonjourLog.info("Published \(sender.name, privacy: .public)")
-        BeamLog.info("Bonjour published: \(sender.name)", tag: "host")
-        if sender === netService {
-            bonjourBackoffAttempt = 0
-        }
-    }
-
-    public func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
-        bonjourLog.error("Publish error: \(String(describing: errorDict), privacy: .public)")
-        BeamLog.error("Bonjour publish error: \(errorDict)", tag: "host")
-        if sender === netService {
-            scheduleBonjourRestart()
-        }
-        // For mediaService we just log; if needed add separate backoff.
-    }
-
-    private func scheduleBonjourRestart() {
-        guard let name = bonjourName else { return }
-        bonjourBackoffAttempt += 1
-        let delay = min(pow(2.0, Double(bonjourBackoffAttempt - 1)), 30.0) // 1,2,4,8,16,30
-        BeamLog.warn("Bonjour republish in \(Int(delay))s (attempt \(bonjourBackoffAttempt))", tag: "host")
-
-        netService?.stop(); netService = nil
-
-        let type = BeamConfig.controlService.hasSuffix(".") ? BeamConfig.controlService : BeamConfig.controlService + "."
-        let ns = NetService(domain: "local.", type: type, name: name, port: Int32(BeamConfig.controlPort))
-        ns.includesPeerToPeer = true
-        ns.delegate = self
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.netService = ns
-            ns.publish()
-        }
-    }
-}
-

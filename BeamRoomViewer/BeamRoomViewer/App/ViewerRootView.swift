@@ -12,6 +12,7 @@ import Combine
 import Network
 import UIKit
 import BeamCore
+
 #if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
 #endif
@@ -35,14 +36,18 @@ final class ViewerViewModel: ObservableObject {
             try browser.start()
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if self.browser.hosts.isEmpty { self.showPermHint = true }
+                if self.browser.hosts.isEmpty {
+                    self.showPermHint = true
+                }
             }
         } catch {
             BeamLog.error("Discovery start error: \(error.localizedDescription)", tag: "viewer")
         }
     }
 
-    func stopDiscovery() { browser.stop() }
+    func stopDiscovery() {
+        browser.stop()
+    }
 
     // Don’t connect here — just open the sheet with a fresh code
     func pick(_ host: DiscoveredHost) {
@@ -57,7 +62,8 @@ final class ViewerViewModel: ObservableObject {
         guard let host = selectedHost else { return }
         // Debounce: only allow from idle/failed
         switch client.status {
-        case .idle, .failed: client.connect(to: host, code: code)
+        case .idle, .failed:
+            client.connect(to: host, code: code)
         default:
             BeamLog.warn("Pair tap ignored; client.status=\(String(describing: client.status))", tag: "viewer")
         }
@@ -70,8 +76,10 @@ final class ViewerViewModel: ObservableObject {
 
     var canTapPair: Bool {
         switch client.status {
-        case .idle, .failed: return true
-        default: return false
+        case .idle, .failed:
+            return true
+        default:
+            return false
         }
     }
 }
@@ -143,8 +151,10 @@ struct ViewerRootView: View {
             .navigationTitle("Viewer")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
-                        .lineLimit(1)
+                    Button { showLogs = true } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .lineLimit(1)
                 }
             }
             .task { model.startDiscovery() }
@@ -219,6 +229,7 @@ private extension ViewerRootView {
 
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
+    @State private var firedSuccessHaptic = false
 
     var body: some View {
         NavigationStack {
@@ -240,28 +251,38 @@ private struct PairSheet: View {
                 switch model.client.status {
                 case .idle:
                     Text("Ready to pair").foregroundStyle(.secondary)
+
                 case .connecting(let hostName, _):
                     Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
+
                 case .waitingAcceptance:
                     Label("Waiting for Host to accept…", systemImage: "hourglass")
                         .foregroundStyle(.secondary)
-                case .paired(let sid, _):
+
+                case .paired(let sid, let udp):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
                     Text("Session: \(sid.uuidString)")
                         .font(.footnote).monospaced().foregroundStyle(.secondary)
 
-                    // M2: show broadcast status from Host
+                    // M2: show broadcast + udp
                     Label(model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
                           systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
                         .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
+
+                    if let u = udp {
+                        Text("Media UDP port: \(u)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
                 case .failed(let reason):
                     Label("Failed: \(reason)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
                 }
 
                 Spacer()
+
                 HStack {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
@@ -279,6 +300,13 @@ private struct PairSheet: View {
             .padding()
             .navigationTitle("Pair")
             .presentationDetents([.medium])
+            .onChange(of: model.client.status) { _, new in
+                if case .paired = new, !firedSuccessHaptic {
+                    firedSuccessHaptic = true
+                    let gen = UINotificationFeedbackGenerator()
+                    gen.notificationOccurred(.success)
+                }
+            }
         }
     }
 }
