@@ -23,7 +23,7 @@
   <key>MinimumOSVersion</key>
   <string>26.0</string>
 
-  <!-- Allow UDP to the Viewer on the LAN from the Upload extension -->
+  <!-- Lets the Upload extension send UDP on the local network -->
   <key>NSLocalNetworkUsageDescription</key>
   <string>BeamRoom needs local network access to stream video to nearby devices.</string>
 
@@ -31,6 +31,7 @@
   <dict>
     <key>NSExtensionAttributes</key>
     <dict>
+      <!-- REQUIRED: must be one of RPBroadcastProcessModeSampleBuffer or RPBroadcastProcessModeMP4Clip -->
       <key>RPBroadcastProcessMode</key>
       <string>RPBroadcastProcessModeSampleBuffer</string>
     </dict>
