@@ -6,8 +6,8 @@
 //
 //  Updated: 2025-09-27
 //  - Large, accessible VerbosityDial (chips) with haptics
-//  - FIX: avoid passing a view (Color.opacity) where a ShapeStyle is required
 //  - Uses system Material so it adopts iOS 26 styling automatically
+//  - No word wrapping on verbosity buttons/pills
 //
 
 import SwiftUI
@@ -132,9 +132,12 @@ private struct VerbosityDial: View {
                 Text("Verbosity")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
                 Text(humanLabel(for: level))
                     .font(.subheadline.monospaced())
+                    .lineLimit(1)                // no wrapping
+                    .truncationMode(.tail)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
@@ -172,13 +175,15 @@ private struct VerbosityDial: View {
     @ViewBuilder
     private func levelChip(for lv: BeamLogLevel) -> some View {
         let selected = (lv.rank == level.rank)
-
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
 
         HStack(spacing: 6) {
             Image(systemName: icon(for: lv))
             Text(shortLabel(for: lv))
                 .font(.body.weight(.semibold))
+                .lineLimit(1)            // no wrapping on chip text
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.95)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -192,7 +197,7 @@ private struct VerbosityDial: View {
                     shape.fill(color(for: lv))
                         .opacity(0.18) // apply opacity to the filled view
                 } else {
-                    shape.fill(.ultraThinMaterial) // pure ShapeStyle, no .opacity chaining
+                    shape.fill(.ultraThinMaterial) // pure ShapeStyle
                 }
             }
         )
