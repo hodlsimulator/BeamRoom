@@ -480,19 +480,26 @@ private final class Conn {
 }
 
 // MARK: - UDP media listener + test frame sender
-
 // We keep MediaUDP on the main queue only; mark as @unchecked Sendable to appease @Sendable closures.
 private final class MediaUDP: @unchecked Sendable {
 
     private var listener: NWListener?
     private var activePeer: NWConnection?
+
     private var peerDesc: String? { activePeer?.endpoint.debugDescription }
     private var onPeerChanged: ((String?) -> Void)?
 
     // Test stream
     private var streamTimer: DispatchSourceTimer?
     private var seq: UInt32 = 0
-    private let w = 320, h = 180
+
+    // IMPORTANT: keep one datagram per frame under ~65 KB:
+    // 160 × 90 × 4 + 12 header = 57,612 bytes (safe).
+    private let w = 160, h = 90
+
+    // Optional debug sampler (summarise throughput)
+    private var bytesInWindow: Int = 0
+    private var windowStart = Date()
 
     init(onPeerChanged: ((String?) -> Void)? = nil) {
         self.onPeerChanged = onPeerChanged
@@ -507,7 +514,7 @@ private final class MediaUDP: @unchecked Sendable {
             params.requiredInterfaceType = .wifi
             params.includePeerToPeer = false
 
-            // Use the port-less initializer; the system assigns an ephemeral port.
+            // Use port-less init; system assigns ephemeral port.
             let lis = try NWListener(using: params)
             listener = lis
 
@@ -519,7 +526,8 @@ private final class MediaUDP: @unchecked Sendable {
                     }
                 case .failed(let err):
                     onError(err)
-                default: break
+                default:
+                    break
                 }
             }
 
@@ -561,9 +569,11 @@ private final class MediaUDP: @unchecked Sendable {
             case .cancelled:
                 BeamLog.warn("UDP peer cancelled", tag: "host")
                 self.onPeerChanged?(nil)
-            default: break
+            default:
+                break
             }
         }
+
         conn.start(queue: .main)
     }
 
@@ -597,45 +607,65 @@ private final class MediaUDP: @unchecked Sendable {
         guard let peer = activePeer else { return }
         seq &+= 1
         let payload = makeGradientFrame(seq: seq, w: w, h: h)
+
+        // Optional: DEBUG summary once per second; no per-frame spam.
+        bytesInWindow += payload.count
+        let now = Date()
+        if now.timeIntervalSince(windowStart) >= 1.0 {
+            let seconds = now.timeIntervalSince(windowStart)
+            let kbps = Double(bytesInWindow * 8) / seconds / 1000.0
+            BeamLog.debug(String(format: "UDP preview ~ %.1f kbps @ %dx%d", kbps, w, h), tag: "host")
+            windowStart = now
+            bytesInWindow = 0
+        }
+
         peer.send(content: payload, completion: .contentProcessed { _ in
-            BeamLog.debug("UDP → frame seq=\(self.seq) bytes=\(payload.count)", tag: "host")
+            // Intentionally quiet by default.
+            // #if DEBUG
+            // if BeamInAppLog.shared.minLevel == .debug && (self.seq % 60 == 0) {
+            //     BeamLog.debug("UDP → frame seq=\(self.seq) bytes=\(payload.count)", tag: "host")
+            // }
+            // #endif
         })
     }
 
     private func makeGradientFrame(seq: UInt32, w: Int, h: Int) -> Data {
         var out = Data(capacity: 12 + w*h*4)
+
         // Header
         out.appendBE(UInt32(0x424D524D)) // 'BMRM'
         out.appendBE(seq)
         out.appendBE(UInt16(w))
         out.appendBE(UInt16(h))
+
         // Pixels (BGRA32): simple moving gradient
         out.reserveCapacity(12 + w*h*4)
         let t = Double(seq) * 0.08
         for y in 0..<h {
-            let gy = UInt8((Double(y) / Double(h)) * 255.0)
             for x in 0..<w {
-                let rx = UInt8((Double(x) / Double(w)) * 255.0)
-                let s = UInt8((sin((Double(x)+Double(y))*0.05 + t) * 0.5 + 0.5) * 255.0)
-                // B, G, R, A
-                out.append(s)    // B
-                out.append(gy)   // G
-                out.append(rx)   // R
-                out.append(255)  // A
+                let fx = Double(x) / Double(w)
+                let fy = Double(y) / Double(h)
+                let r = UInt8(clamping: Int((sin(t + fx * .pi * 2) * 0.5 + 0.5) * 255))
+                let g = UInt8(clamping: Int((sin(t * 0.7 + fy * .pi * 2) * 0.5 + 0.5) * 255))
+                let b = UInt8(clamping: Int((sin(t * 1.3 + (fx + fy) * .pi) * 0.5 + 0.5) * 255))
+                out.append(b) // B
+                out.append(g) // G
+                out.append(r) // R
+                out.append(0xFF) // A (premultipliedFirst)
             }
         }
+
         return out
     }
 }
 
-// MARK: - Helpers
-
+// Small helpers to append big-endian integers to Data
 private extension Data {
-    // Write integers in big-endian without unsafe pointer gymnastics.
     mutating func appendBE<T: FixedWidthInteger>(_ v: T) {
-        for i in (0..<MemoryLayout<T>.size).reversed() {
-            let byte = UInt8(truncatingIfNeeded: (v >> (i * 8)))
-            append(byte)
+        var be = v.bigEndian
+        Swift.withUnsafeBytes(of: &be) { rawBuf in
+            // Use the global Swift.withUnsafeBytes and append the raw bytes
+            self.append(contentsOf: rawBuf)
         }
     }
 }

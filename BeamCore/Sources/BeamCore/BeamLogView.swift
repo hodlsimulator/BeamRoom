@@ -24,19 +24,27 @@ public struct BeamLogView: View {
             logList
         }
         .sheet(isPresented: $showShare) {
-            ActivityView(items: [shareText])
-                .ignoresSafeArea()
+            ActivityView(items: [shareText]).ignoresSafeArea()
         }
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Text("Debug Log")
                 .font(.headline)
                 .lineLimit(1)
                 .minimumScaleFactor(0.9)
 
-            Spacer()
+            Spacer(minLength: 8)
+
+            Picker("Verbosity", selection: $log.minLevel) {
+                Text("Debug").tag(BeamLogLevel.debug)
+                Text("Info").tag(BeamLogLevel.info)
+                Text("Warn").tag(BeamLogLevel.warn)
+                Text("Error").tag(BeamLogLevel.error)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 360)
 
             Toggle("Auto-scroll", isOn: $autoScroll)
                 .toggleStyle(.switch)
@@ -81,8 +89,7 @@ public struct BeamLogView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(log.entries) { e in
-                        LogRow(entry: e)
-                            .id(e.id)
+                        LogRow(entry: e).id(e.id)
                     }
                 }
                 .padding(.horizontal, 12)

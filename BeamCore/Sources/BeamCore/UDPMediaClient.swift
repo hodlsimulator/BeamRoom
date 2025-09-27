@@ -32,8 +32,8 @@ public final class UDPMediaClient: ObservableObject {
 
     private var conn: NWConnection?
     private var bytesInWindow: Int = 0
+    private var framesInWindow: Int = 0
     private var windowStart = Date()
-    private var lastFrameTS = Date()
     private var connectedKey: String?
 
     public init() {}
@@ -42,6 +42,7 @@ public final class UDPMediaClient: ObservableObject {
         // De-dupe if already connected to same target
         let key = "\(host):\(port)"
         if connectedKey == key { return }
+
         disconnect()
         connectedKey = key
 
@@ -68,9 +69,11 @@ public final class UDPMediaClient: ObservableObject {
             case .cancelled:
                 mediaLog.notice("UDP cancelled")
                 Task { @MainActor in self.disconnect() }
-            default: break
+            default:
+                break
             }
         }
+
         c.start(queue: .main)
     }
 
@@ -80,6 +83,7 @@ public final class UDPMediaClient: ObservableObject {
         lastImage = nil
         stats = .init()
         bytesInWindow = 0
+        framesInWindow = 0
         connectedKey = nil
     }
 
@@ -97,26 +101,31 @@ public final class UDPMediaClient: ObservableObject {
         guard let c = conn else { return }
         c.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
+
             if let d = data, !d.isEmpty {
                 self.handleDatagram(d)
             }
+
             if let error {
                 mediaLog.error("UDP recv error: \(error.localizedDescription)")
                 Task { @MainActor in self.disconnect() }
                 return
             }
+
             self.receiveLoop()
         }
     }
 
     private func handleDatagram(_ data: Data) {
-        // Header: [u32 magic 'BMRM'][u32 seq][u16 w][u16 h] (all big-endian)
+        // Header: [u32 magic 'BMRM'][u32 seq][u16 w][u16 h] (big-endian)
         guard data.count >= 12 else { return }
         let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).bigEndian }
         guard magic == 0x424D524D else { return } // 'BMRM'
-        let seq   = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
-        let w     = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
-        let h     = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
+
+        let seq = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
+        let w = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
+        let h = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
+
         let pixelBytes = data.count - 12
         guard pixelBytes == w * h * 4 else { return }
 
@@ -125,35 +134,41 @@ public final class UDPMediaClient: ObservableObject {
             stats.drops += UInt64(seq - stats.lastSeq - 1)
         }
         stats.lastSeq = seq
-        stats.frames += 1
+        stats.frames &+= 1
+
         bytesInWindow += data.count
+        framesInWindow &+= 1
+
         let now = Date()
-        if now.timeIntervalSince(windowStart) >= 1.0 {
-            let seconds = now.timeIntervalSince(windowStart)
-            // Compute over the last 1s window
-            stats.fps = Double(bytesInWindow == 0 ? 0 : Int(Double(stats.frames) * (1.0 / seconds))) // best-effort
-            stats.kbps = Double(bytesInWindow * 8) / seconds / 1000.0
+        let elapsed = now.timeIntervalSince(windowStart)
+        if elapsed >= 1.0 {
+            stats.fps  = Double(framesInWindow) / elapsed
+            stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
             windowStart = now
             bytesInWindow = 0
+            framesInWindow = 0
         }
-        lastFrameTS = now
 
         // Image (BGRA32, premultipliedFirst, byteOrder32Little)
-        let pixels = data.subdata(in: 12..<data.count) as CFData
-        guard let provider = CGDataProvider(data: pixels) else { return }
+        let pixels = data.subdata(in: 12..<(12 + pixelBytes)) as CFData
+        let provider = CGDataProvider(data: pixels)
         let cs = CGColorSpaceCreateDeviceRGB()
-        let info = CGBitmapInfo(rawValue:
-            CGImageAlphaInfo.premultipliedFirst.rawValue |
-            CGBitmapInfo.byteOrder32Little.rawValue
-        )
-        guard let cg = CGImage(
-            width: w, height: h,
-            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-            space: cs, bitmapInfo: info,
-            provider: provider, decode: nil,
-            shouldInterpolate: true, intent: .defaultIntent
-        ) else { return }
+        let bmp: CGBitmapInfo = [.byteOrder32Little, CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)]
+        let rowBytes = w * 4
 
-        lastImage = cg
+        if let provider,
+           let img = CGImage(width: w,
+                             height: h,
+                             bitsPerComponent: 8,
+                             bitsPerPixel: 32,
+                             bytesPerRow: rowBytes,
+                             space: cs,
+                             bitmapInfo: bmp,
+                             provider: provider,
+                             decode: nil,
+                             shouldInterpolate: true,
+                             intent: .defaultIntent) {
+            lastImage = img
+        }
     }
 }
