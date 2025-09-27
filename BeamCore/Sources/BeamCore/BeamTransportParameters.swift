@@ -8,19 +8,26 @@
 import Network
 
 enum BeamTransportParameters {
-    /// TCP with peer-to-peer enabled. We rely on app-level heartbeats, so we do **not**
-    /// enable kernel keepalives (aggressive KA on iOS can cause spurious RSTs).
+
+    /// Control channel over **infrastructure Wi-Fi only** (no AWDL/cellular).
+    /// We rely on app heartbeats, so no kernel keepalive.
+    static func tcpInfraWiFi() -> NWParameters {
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+
+        let params = NWParameters(tls: nil, tcp: tcp)
+        params.includePeerToPeer = false                 // exclude AWDL
+        params.requiredInterfaceType = .wifi             // infra Wi-Fi only
+        params.prohibitedInterfaceTypes = [.cellular]    // belt & braces
+        return params
+    }
+
+    /// Keep this around for discovery or future P2P needs.
     static func tcpPeerToPeer() -> NWParameters {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
-        // If you ever want kernel keepalive, keep it conservative (example):
-        // tcp.enableKeepalive = true
-        // tcp.keepaliveIdle = 120
-        // tcp.keepaliveInterval = 30
-        // tcp.keepaliveCount = 4
-
         let params = NWParameters(tls: nil, tcp: tcp)
-        params.includePeerToPeer = true // AWDL / Wi-Fi Aware allowed
+        params.includePeerToPeer = true
         return params
     }
 }

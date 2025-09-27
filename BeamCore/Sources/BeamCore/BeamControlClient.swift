@@ -33,10 +33,10 @@ public final class BeamControlClient: ObservableObject {
     private var hbTimer: DispatchSourceTimer?
     private let hbInterval: TimeInterval = 5
 
-    // Liveness diagnostics: if host stops talking for too long, we’ll log it clearly.
+    // Liveness diagnostics
     private var lastRxAt: Date?
     private var livenessTimer: DispatchSourceTimer?
-    private let livenessGrace: TimeInterval = 15 // if no rx > 15s while "paired", mark as failed
+    private let livenessGrace: TimeInterval = 15
 
     public init() {}
 
@@ -48,7 +48,7 @@ public final class BeamControlClient: ObservableObject {
 
     @MainActor
     public func connect(to host: DiscoveredHost, code: String) {
-        // Tear down any prior attempt on main actor
+        // Tear down any prior attempt
         disconnect()
 
         attemptSeq += 1
@@ -60,7 +60,8 @@ public final class BeamControlClient: ObservableObject {
 
         BeamLog.info("conn#\(attemptID) Connecting to \(hostName) @ \(remoteDesc) with code \(code)", tag: "viewer")
 
-        let params = BeamTransportParameters.tcpPeerToPeer()
+        // ⬅︎ Force infra Wi-Fi for the control link
+        let params = BeamTransportParameters.tcpInfraWiFi()
         let conn = NWConnection(to: endpoint, using: params)
         self.connection = conn
         self.status = .connecting(hostName: hostName, remote: remoteDesc)
@@ -102,12 +103,15 @@ public final class BeamControlClient: ObservableObject {
             }
         }
 
-        // Extra diagnostics: viability/better-path changes
+        // Extra diagnostics
         conn.viabilityUpdateHandler = { isViable in
             BeamLog.debug("conn#\(idForLogs) viable=\(isViable)", tag: "viewer")
         }
         conn.betterPathUpdateHandler = { hasBetter in
             BeamLog.debug("conn#\(idForLogs) betterPath=\(hasBetter)", tag: "viewer")
+        }
+        conn.pathUpdateHandler = { path in
+            BeamLog.debug("conn#\(idForLogs) pathUpdate=\(pathSummary(path))", tag: "viewer")
         }
 
         conn.start(queue: .main)
@@ -175,14 +179,12 @@ public final class BeamControlClient: ObservableObject {
                     self.stopHeartbeats()
                     self.stopLivenessWatch()
                     if case .paired = self.status {
-                        // Keep "Paired" visible if host intentionally closed;
-                        // status will be overwritten by UI actions if needed.
+                        // keep paired label; UI will sort it out
                     } else if case .failed = self.status {
                         // keep failed
                     } else {
                         self.status = .failed(reason: "Disconnected")
                     }
-                    // Ensure we drop our side too.
                     self.connection?.cancel(); self.connection = nil
                 }
                 BeamLog.warn("conn#\(id) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "viewer")
@@ -194,14 +196,14 @@ public final class BeamControlClient: ObservableObject {
     }
 
     private func handleLine(_ line: Data) {
-        // 1) Handshake response FIRST
+        // 1) Handshake response
         if let resp = try? JSONDecoder().decode(HandshakeResponse.self, from: line) {
             Task { @MainActor in
                 self.handshakeTimeoutTask?.cancel()
                 if resp.ok, let sid = resp.sessionID {
                     self.status = .paired(session: sid, udpPort: resp.udpPort)
                     BeamLog.info("Paired ✓ session=\(sid)", tag: "viewer")
-                    self.lastRxAt = Date() // reset liveness on successful handshake
+                    self.lastRxAt = Date()
                     self.startHeartbeats()
                     self.startLivenessWatch()
                 } else {
@@ -264,7 +266,6 @@ public final class BeamControlClient: ObservableObject {
             let last = self.lastRxAt ?? Date()
             let gap = Date().timeIntervalSince(last)
             if gap > self.livenessGrace {
-                // Just mark it and log; we’ll still rely on the receiveLoop to learn about actual closure.
                 BeamLog.warn("LIVENESS: no host traffic for \(Int(gap))s; marking failed (will close)", tag: "viewer")
                 self.status = .failed(reason: "Lost contact with host")
                 self.connection?.cancel()

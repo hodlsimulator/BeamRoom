@@ -84,7 +84,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
     public func start(serviceName: String) throws {
         guard listener == nil else { throw BeamError.alreadyRunning }
 
-        let params = BeamTransportParameters.tcpPeerToPeer()
+        // ⬅︎ Force infra Wi-Fi for the listener (no AWDL/cellular)
+        let params = BeamTransportParameters.tcpInfraWiFi()
         guard let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort) else {
             throw BeamError.connectionFailed("Bad control port")
         }
@@ -110,6 +111,18 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
                 let ps = pathSummary(conn.currentPath)
                 BeamLog.info("conn#\(cid) accepted (remote=\(remote), path=\(ps))", tag: "host")
+
+                // Path + viability diagnostics
+                conn.viabilityUpdateHandler = { isViable in
+                    BeamLog.debug("conn#\(cid) viable=\(isViable)", tag: "host")
+                }
+                conn.betterPathUpdateHandler = { hasBetter in
+                    BeamLog.debug("conn#\(cid) betterPath=\(hasBetter)", tag: "host")
+                }
+                conn.pathUpdateHandler = { path in
+                    BeamLog.debug("conn#\(cid) pathUpdate=\(pathSummary(path))", tag: "host")
+                }
+
                 // Seed liveness timestamp so we don’t instantly trip before first rx
                 self.lastRxAtByConn[key] = Date()
                 self.handleIncoming(conn)
@@ -200,12 +213,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 BeamLog.error("conn#\(cid) failed: \(err.localizedDescription)", tag: "host")
             }
         }
-        conn.viabilityUpdateHandler = { isViable in
-            BeamLog.debug("conn#\(cid) viable=\(isViable)", tag: "host")
-        }
-        conn.betterPathUpdateHandler = { hasBetter in
-            BeamLog.debug("conn#\(cid) betterPath=\(hasBetter)", tag: "host")
-        }
 
         conn.start(queue: .main)
         receiveLoop(conn)
@@ -251,7 +258,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private func handleLine(_ line: Data, from conn: NWConnection) {
         let cid = self.cid(for: conn)
 
-        // 1) Handshake FIRST
+        // 1) Handshake
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
             let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
             if self.autoAccept {
