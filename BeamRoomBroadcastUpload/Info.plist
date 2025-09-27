@@ -2,36 +2,41 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDevelopmentRegion</key><string>en-GB</string>
-  <key>CFBundleDisplayName</key><string>BeamRoom Upload</string>
-  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-  <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
-  <key>CFBundlePackageType</key><string>XPC!</string>
-  <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
-  <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
-  <key>MinimumOSVersion</key><string>26.0</string>
-
-  <key>NSLocalNetworkUsageDescription</key>
-  <string>BeamRoom needs local network access to stream video to nearby devices.</string>
-
-  <key>NSExtension</key>
-  <dict>
-    <key>NSExtensionAttributes</key>
-    <dict>
-      <!-- REQUIRED by ReplayKit (nested) -->
-      <key>RPBroadcastProcessMode</key>
-      <string>RPBroadcastProcessModeSampleBuffer</string>
-    </dict>
-    <key>NSExtensionPointIdentifier</key>
-    <string>com.apple.broadcast-services-upload</string>
-    <key>NSExtensionPrincipalClass</key>
-    <string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
-  </dict>
-
-  <!-- Workaround for ASC parser: duplicate at top level as well -->
-  <key>RPBroadcastProcessMode</key>
-  <string>RPBroadcastProcessModeSampleBuffer</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en-GB</string>
+	<key>CFBundleDisplayName</key>
+	<string>BeamRoom Upload</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>MinimumOSVersion</key>
+	<string>26.0</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>RPBroadcastProcessMode</key>
+			<string>RPBroadcastProcessModeSampleBuffer</string>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.broadcast-services-upload</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>BeamRoom needs local network access to stream video to nearby devices.</string>
+	<key>RPBroadcastProcessMode</key>
+	<string>RPBroadcastProcessModeSampleBuffer</string>
 </dict>
 </plist>
