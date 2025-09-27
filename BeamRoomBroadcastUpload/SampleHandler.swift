@@ -11,13 +11,12 @@ import BeamCore
 import CoreMedia
 
 final class SampleHandler: RPBroadcastSampleHandler {
-
     private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "upload")
 
     override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
-        // No privacy parameters needed here; we’re logging a simple string.
         log.info("Broadcast started. Setup: \(String(describing: setupInfo))")
-        // M0: no transport initialised yet.
+        BeamConfig.setBroadcast(on: true) // M2: flip shared flag
+        // M3: initialise VTCompression + UDP media here.
     }
 
     override func broadcastPaused() {
@@ -30,11 +29,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastFinished() {
         log.info("Broadcast finished")
+        BeamConfig.setBroadcast(on: false) // M2: clear flag
     }
 
-    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer,
-                                      with sampleBufferType: RPSampleBufferType) {
-        // M0: Drop everything (no-op) — wire VTCompression + UDP later.
+    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
+        // M2: Drop everything (no-op). M3 will packetise and send.
         switch sampleBufferType {
         case .video: break
         case .audioApp: break

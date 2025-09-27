@@ -20,17 +20,17 @@ public enum BeamError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidMessage:                 return "Invalid message"
-        case .handshakeRejected(let reason):  return "Pairing rejected: \(reason)"
-        case .connectionFailed(let reason):   return "Connection failed: \(reason)"
-        case .cancelled:                      return "Cancelled"
-        case .alreadyRunning:                 return "Already running"
-        case .notRunning:                     return "Not running"
+        case .invalidMessage: return "Invalid message"
+        case .handshakeRejected(let reason): return "Pairing rejected: \(reason)"
+        case .connectionFailed(let reason): return "Connection failed: \(reason)"
+        case .cancelled: return "Cancelled"
+        case .alreadyRunning: return "Already running"
+        case .notRunning: return "Not running"
         }
     }
 }
 
-// MARK: Control messages
+// MARK: - Control messages
 
 public struct HandshakeRequest: Codable, Equatable {
     public let app: String = "beamroom"
@@ -62,7 +62,13 @@ public struct Heartbeat: Codable, Equatable {
     public init(hb: Int = 1) { self.hb = hb }
 }
 
-// MARK: Newline-delimited JSON framing
+/// M2: Broadcast status
+public struct BroadcastStatus: Codable, Equatable {
+    public let on: Bool
+    public init(on: Bool) { self.on = on }
+}
+
+// MARK: - Newline-delimited JSON framing
 
 enum Frame {
     static let nl = UInt8(0x0A)
@@ -89,15 +95,18 @@ enum Frame {
     }
 }
 
-// MARK: Discovered Host model
+// MARK: - Discovered Host model
 
 public struct DiscoveredHost: Identifiable, Hashable {
     public let id = UUID()
     public let name: String
+
     /// Original Bonjour service endpoint (works everywhere).
     public let endpoint: NWEndpoint
+
     /// Preferred infrastructure IPv4 endpoint (set when we resolve addresses).
     public var preferredEndpoint: NWEndpoint?
+
     /// For diagnostics/UI
     public var resolvedIPs: [String] = []
 

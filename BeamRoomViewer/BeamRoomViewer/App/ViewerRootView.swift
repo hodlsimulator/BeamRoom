@@ -28,7 +28,7 @@ final class ViewerViewModel: ObservableObject {
     @Published var showAwareSheet: Bool = false
 
     let browser = BeamBrowser()
-    let client  = BeamControlClient()
+    let client = BeamControlClient()
 
     func startDiscovery() {
         do {
@@ -55,12 +55,24 @@ final class ViewerViewModel: ObservableObject {
     // Connect when the user taps “Pair” in the sheet
     func pair() {
         guard let host = selectedHost else { return }
-        client.connect(to: host, code: code)
+        // Debounce: only allow from idle/failed
+        switch client.status {
+        case .idle, .failed: client.connect(to: host, code: code)
+        default:
+            BeamLog.warn("Pair tap ignored; client.status=\(String(describing: client.status))", tag: "viewer")
+        }
     }
 
     func cancelPairing() {
         client.disconnect()
         showPairSheet = false
+    }
+
+    var canTapPair: Bool {
+        switch client.status {
+        case .idle, .failed: return true
+        default: return false
+        }
     }
 }
 
@@ -123,7 +135,6 @@ struct ViewerRootView: View {
                 }
 
                 Spacer(minLength: 12)
-
                 Text(BeamCore.hello())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -168,7 +179,6 @@ private extension ViewerRootView {
                 .connecting(to: devices, from: service),
                 active: nil
             )
-
             DevicePicker(
                 provider,
                 onSelect: { _ in
@@ -241,13 +251,17 @@ private struct PairSheet: View {
                         .foregroundStyle(.green)
                     Text("Session: \(sid.uuidString)")
                         .font(.footnote).monospaced().foregroundStyle(.secondary)
+
+                    // M2: show broadcast status from Host
+                    Label(model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
+                          systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
+                        .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
                 case .failed(let reason):
                     Label("Failed: \(reason)", systemImage: "xmark.octagon.fill")
                         .foregroundStyle(.red)
                 }
 
                 Spacer()
-
                 HStack {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
@@ -258,6 +272,7 @@ private struct PairSheet: View {
                     } else {
                         Button("Pair") { model.pair() }
                             .buttonStyle(.borderedProminent)
+                            .disabled(!model.canTapPair)
                     }
                 }
             }

@@ -54,6 +54,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private var rxBuffers: [ObjectIdentifier: Data] = [:]
     private var connSeq: Int = 0
     private var connIDs: [ObjectIdentifier: Int] = [:]
+    private var sessionByConn: [ObjectIdentifier: UUID] = [:]
+    private var pendingIDByConn: [ObjectIdentifier: UUID] = [:]
 
     // Heartbeats (outbound from host)
     private var hbTimer: DispatchSourceTimer?
@@ -165,6 +167,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
         pendingPairs.removeAll()
         pendingByID.removeAll()
         connIDs.removeAll()
+        sessionByConn.removeAll()
+        pendingIDByConn.removeAll()
 
         publishedName = nil
         isRunning = false
@@ -181,7 +185,12 @@ public final class BeamControlServer: NSObject, ObservableObject {
         let sid = UUID()
         let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
         sendResponse(resp, over: p.connection)
+
+        // Push current broadcast status (M2)
+        pushBroadcastStatus(to: p.connection)
+
         sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: p.remoteDescription))
+        sessionByConn[ObjectIdentifier(p.connection)] = sid
         BeamLog.info("conn#\(p.connID) ACCEPT code \(p.code) → session \(sid)", tag: "host")
     }
 
@@ -241,6 +250,16 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
             if isEOF || error != nil {
                 Task { @MainActor in
+                    // Clean up pending for this connection
+                    if let pid = self.pendingIDByConn.removeValue(forKey: key) {
+                        self.pendingByID.removeValue(forKey: pid)
+                        self.pendingPairs.removeAll { $0.id == pid }
+                    }
+                    // Clean up active session for this connection
+                    if let sid = self.sessionByConn.removeValue(forKey: key) {
+                        self.sessions.removeAll { $0.id == sid }
+                    }
+
                     self.rxBuffers.removeValue(forKey: key)
                     self.lastRxAtByConn.removeValue(forKey: key)
                     BeamLog.warn("conn#\(cid) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
@@ -258,28 +277,38 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private func handleLine(_ line: Data, from conn: NWConnection) {
         let cid = self.cid(for: conn)
 
+        // 0) Heartbeat from viewer
+        if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
+            BeamLog.debug("conn#\(cid) hb", tag: "host")
+            return
+        }
+
         // 1) Handshake
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
             let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
+            let key = ObjectIdentifier(conn)
+
             if self.autoAccept {
                 let sid = UUID()
                 let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
                 sendResponse(resp, over: conn)
+
+                // Push current broadcast status (M2)
+                pushBroadcastStatus(to: conn)
+
                 sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: remote))
+                sessionByConn[key] = sid
                 BeamLog.info("conn#\(cid) AUTO-ACCEPT code \(req.code) → session \(sid)", tag: "host")
                 return
             }
+
+            // Manual flow: track pending (and replace any older pending for the same connection)
             let p = PendingPair(code: req.code, remoteDescription: remote, connection: conn, connID: cid)
             pendingByID[p.id] = p
+            pendingIDByConn[key] = p.id
             pendingPairs.append(p)
             serverLog.info("Pending pair from \(remote, privacy: .public) code \(req.code, privacy: .public)")
             BeamLog.info("conn#\(cid) handshake code \(req.code) (pending=\(pendingPairs.count))", tag: "host")
-            return
-        }
-
-        // 2) Heartbeat
-        if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
-            BeamLog.debug("conn#\(cid) hb", tag: "host")
             return
         }
 
@@ -300,6 +329,24 @@ public final class BeamControlServer: NSObject, ObservableObject {
             serverLog.error("Failed to encode response: \(error.localizedDescription, privacy: .public)")
             BeamLog.error("conn#\(cid) send failed: \(error.localizedDescription)", tag: "host")
         }
+    }
+
+    // MARK: Broadcast status push (M2)
+
+    private func pushBroadcastStatus(to conn: NWConnection) {
+        let on = BeamConfig.isBroadcastOn()
+        do {
+            let bytes = try Frame.encodeLine(BroadcastStatus(on: on))
+            conn.send(content: bytes, completion: .contentProcessed { _ in
+                BeamLog.debug("conn#\(self.cid(for: conn)) sent \(bytes.count) bytes (broadcast=\(on))", tag: "host")
+            })
+        } catch {
+            BeamLog.error("broadcast status encode fail: \(error.localizedDescription)", tag: "host")
+        }
+    }
+
+    private func pushBroadcastStatusToAll() {
+        for c in connections { pushBroadcastStatus(to: c) }
     }
 
     // MARK: Heartbeats (host → viewers)
@@ -325,6 +372,23 @@ public final class BeamControlServer: NSObject, ObservableObject {
         }
         t.resume()
         hbTimer = t
+
+        // Also poll broadcast flag and push when it changes (simple, robust)
+        // (We could use Darwin notifications; polling keeps the code straightforward for M2.)
+        var last = BeamConfig.isBroadcastOn()
+        let poll = DispatchSource.makeTimerSource(queue: .main)
+        poll.schedule(deadline: .now() + 1, repeating: 1)
+        poll.setEventHandler { [weak self] in
+            guard let self else { return }
+            let now = BeamConfig.isBroadcastOn()
+            if now != last {
+                last = now
+                self.pushBroadcastStatusToAll()
+            }
+        }
+        poll.resume()
+        // piggy-back on hbTimer so stopHeartbeats cancels both
+        hbTimer = t // (timer above already assigned)
     }
 
     @MainActor
@@ -351,6 +415,14 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     let id = self.cid(for: c)
                     BeamLog.warn("LIVENESS: no viewer traffic on conn#\(id) for \(Int(gap))s; closing", tag: "host")
                     self.lastRxAtByConn.removeValue(forKey: key)
+                    // Remove pending or session entries for this connection
+                    if let pid = self.pendingIDByConn.removeValue(forKey: key) {
+                        self.pendingByID.removeValue(forKey: pid)
+                        self.pendingPairs.removeAll { $0.id == pid }
+                    }
+                    if let sid = self.sessionByConn.removeValue(forKey: key) {
+                        self.sessions.removeAll { $0.id == sid }
+                    }
                     c.cancel()
                     self.connections.removeAll { $0 === c }
                     self.rxBuffers.removeValue(forKey: key)

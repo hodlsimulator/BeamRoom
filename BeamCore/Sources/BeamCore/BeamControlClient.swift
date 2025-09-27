@@ -22,6 +22,7 @@ public final class BeamControlClient: ObservableObject {
     }
 
     @Published public private(set) var status: Status = .idle
+    @Published public private(set) var broadcastOn: Bool = BeamConfig.isBroadcastOn() // latest known from Host
 
     private var connection: NWConnection?
     private var rxBuffer = Data()
@@ -48,6 +49,15 @@ public final class BeamControlClient: ObservableObject {
 
     @MainActor
     public func connect(to host: DiscoveredHost, code: String) {
+        // Debounce: ignore while connecting/waiting/paired
+        switch status {
+        case .idle, .failed:
+            break
+        default:
+            BeamLog.warn("connect() ignored; status=\(String(describing: status))", tag: "viewer")
+            return
+        }
+
         // Tear down any prior attempt
         disconnect()
 
@@ -196,6 +206,13 @@ public final class BeamControlClient: ObservableObject {
     }
 
     private func handleLine(_ line: Data) {
+        // 0) Broadcast status (M2)
+        if let bs = try? JSONDecoder().decode(BroadcastStatus.self, from: line) {
+            broadcastOn = bs.on
+            BeamLog.info("Broadcast status → \(bs.on ? "ON" : "OFF")", tag: "viewer")
+            return
+        }
+
         // 1) Handshake response
         if let resp = try? JSONDecoder().decode(HandshakeResponse.self, from: line) {
             Task { @MainActor in

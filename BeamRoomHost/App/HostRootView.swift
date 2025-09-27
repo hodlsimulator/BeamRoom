@@ -13,14 +13,17 @@ import Combine
 import BeamCore
 import UIKit
 import Network
+import ReplayKit
 
 @MainActor
 final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
     @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
+    @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
 
     let server: BeamControlServer
+    private var pollTimer: Timer?
 
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
@@ -29,10 +32,12 @@ final class HostViewModel: ObservableObject {
     func toggle() {
         if started {
             server.stop()
+            stopBroadcastPoll()
             started = false
         } else {
             do {
                 try server.start(serviceName: serviceName)
+                startBroadcastPoll()
                 started = true
             } catch {
                 started = false
@@ -44,6 +49,20 @@ final class HostViewModel: ObservableObject {
     func setAutoAccept(_ v: Bool) { server.autoAccept = v }
     func accept(_ id: UUID) { server.accept(id) }
     func decline(_ id: UUID) { server.decline(id) }
+
+    // Poll the App Group flag (simple, robust)
+    private func startBroadcastPoll() {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let on = BeamConfig.isBroadcastOn()
+            if on != self.broadcastOn {
+                self.broadcastOn = on
+                // Server will push to all viewers on next poll (it also polls internally)
+            }
+        }
+    }
+    private func stopBroadcastPoll() { pollTimer?.invalidate(); pollTimer = nil }
 }
 
 struct HostRootView: View {
@@ -67,9 +86,10 @@ struct HostRootView: View {
                 }
 
                 Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
-                    .onChange(of: model.autoAccept) { old, new in
-                        model.setAutoAccept(new)
-                    }
+                    .onChange(of: model.autoAccept) { _, new in model.setAutoAccept(new) }
+
+                // M2: Broadcast controls
+                broadcastSection
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -109,31 +129,32 @@ struct HostRootView: View {
                         Text("None yet.\nA Viewer will tap your name and send a 4-digit code.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                    }
-                    List(model.server.pendingPairs) { p in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Code: \(p.code)")
-                                    .font(.title2).bold().monospaced()
-                                    .lineLimit(1)
-                                Text("conn#\(p.connID) • \(p.remoteDescription)")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                    } else {
+                        List(model.server.pendingPairs) { p in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Code: \(p.code)")
+                                        .font(.title2).bold().monospaced()
+                                        .lineLimit(1)
+                                    Text("conn#\(p.connID) • \(p.remoteDescription)")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                HStack(spacing: 8) {
+                                    Button("Decline") { model.decline(p.id) }
+                                        .buttonStyle(.bordered)
+                                        .lineLimit(1)
+                                    Button("Accept") { model.accept(p.id) }
+                                        .buttonStyle(.borderedProminent)
+                                        .lineLimit(1)
+                                }
                             }
-                            Spacer()
-                            HStack(spacing: 8) {
-                                Button("Decline") { model.decline(p.id) }
-                                    .buttonStyle(.bordered)
-                                    .lineLimit(1)
-                                Button("Accept") { model.accept(p.id) }
-                                    .buttonStyle(.borderedProminent)
-                                    .lineLimit(1)
-                            }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
+                        .listStyle(.plain)
+                        .frame(minHeight: 120, maxHeight: 240)
                     }
-                    .listStyle(.plain)
-                    .frame(minHeight: 120, maxHeight: 240)
                 }
 
                 Spacer(minLength: 12)
@@ -155,6 +176,55 @@ struct HostRootView: View {
             }
             .sheet(isPresented: $showLogs) { BeamLogView() }
         }
+    }
+
+    // MARK: Broadcast UI
+
+    @ViewBuilder
+    private var broadcastSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label(model.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
+                      systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
+                    .foregroundStyle(model.broadcastOn ? .green : .secondary)
+                    .font(.headline)
+                Spacer()
+            }
+
+            // Apple’s system picker doubles as Start/Stop.
+            BroadcastPicker()
+                .frame(height: 44)
+        }
+    }
+}
+
+// Wrap RPSystemBroadcastPickerView so we don’t hardcode bundle id.
+// It auto-detects the embedded Upload extension (.appex with
+// NSExtensionPointIdentifier = com.apple.broadcast-services-upload).
+private struct BroadcastPicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
+        let v = RPSystemBroadcastPickerView()
+        v.showsMicrophoneButton = false
+        v.preferredExtension = Self.findUploadExtensionBundleID()
+        return v
+    }
+    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+
+    private static func findUploadExtensionBundleID() -> String? {
+        guard let plugins = Bundle.main.builtInPlugInsURL else { return nil }
+        let fm = FileManager.default
+        guard let it = fm.enumerator(at: plugins, includingPropertiesForKeys: nil) else { return nil }
+        for case let url as URL in it {
+            if url.pathExtension == "appex",
+               let b = Bundle(url: url),
+               let info = b.infoDictionary,
+               let ext = info["NSExtension"] as? [String: Any],
+               let point = ext["NSExtensionPointIdentifier"] as? String,
+               point == "com.apple.broadcast-services-upload" {
+                return b.bundleIdentifier
+            }
+        }
+        return nil
     }
 }
 
