@@ -14,7 +14,7 @@ import CoreVideo
 import OSLog
 import BeamCore
 
-final class H264Encoder {
+final class H264Encoder: @unchecked Sendable {
 
     struct Encoded {
         let sample: CMSampleBuffer
@@ -32,6 +32,7 @@ final class H264Encoder {
     private let targetBitrate: Int
     private let fps: Int
     private let keyframeIntervalSeconds: Int
+    private var forceKeyNext = false
 
     init(targetBitrate: Int = 1_200_000, fps: Int = 15, keyframeIntervalSeconds: Int = 2) {
         self.targetBitrate = targetBitrate
@@ -52,7 +53,7 @@ final class H264Encoder {
 
     // MARK: - Encode
 
-    func encode(_ sb: CMSampleBuffer, onEncoded: @escaping (Encoded) -> Void) {
+    func encode(_ sb: CMSampleBuffer, onEncoded: @escaping @Sendable (Encoded) -> Void) {
         guard let pb = CMSampleBufferGetImageBuffer(sb) else { return }
         let w = CVPixelBufferGetWidth(pb)
         let h = CVPixelBufferGetHeight(pb)
@@ -65,18 +66,22 @@ final class H264Encoder {
         let pts = CMSampleBufferGetPresentationTimeStamp(sb)
         var info = VTEncodeInfoFlags()
 
+        var frameProps: CFDictionary?
+        if forceKeyNext {
+            frameProps = [kVTEncodeFrameOptionKey_ForceKeyFrame as String: true] as CFDictionary
+            forceKeyNext = false
+        }
+
         let status = VTCompressionSessionEncodeFrame(
             sess,
             imageBuffer: pb,
             presentationTimeStamp: pts,
             duration: .invalid,
-            frameProperties: nil,
+            frameProperties: frameProps,
             infoFlagsOut: &info
         ) { [weak self] status, _, sampleBuffer in
-            guard status == noErr, let self, let sampleBuffer else {
-                if status != noErr {
-                    self?.log.error("Encode callback status=\(status)")
-                }
+            guard status == noErr, let sampleBuffer else {
+                if status != noErr { self?.log.error("Encode callback status=\(status)") }
                 return
             }
 
@@ -187,11 +192,8 @@ final class H264Encoder {
         }
     }
 
-    // Optional: force a keyframe on next encode() call
-    func requestKeyframe() {
-        guard let s = session else { return }
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_ForceKeyFrame, value: kCFBooleanTrue)
-    }
+    // Force next frame to be a keyframe.
+    func requestKeyframe() { forceKeyNext = true }
 
     // MARK: - AVCC extraction
 
@@ -244,7 +246,7 @@ final class H264Encoder {
             let remain = total - offset
             let take   = min(budget, remain)
 
-            var header = H264Wire.Header(
+            let header = H264Wire.Header(
                 seq: seq,
                 partIndex: UInt16(idx),
                 partCount: UInt16(parts),

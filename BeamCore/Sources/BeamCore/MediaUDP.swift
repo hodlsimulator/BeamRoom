@@ -146,7 +146,7 @@ final class MediaUDP: @unchecked Sendable {
         }
     }
 
-    // MARK: - Test frames (unchanged)
+    // MARK: - Test frames
 
     func startTestFrames() {
         stopTestFrames()
@@ -220,12 +220,4 @@ final class MediaUDP: @unchecked Sendable {
     }
 }
 
-private extension Data {
-    mutating func appendBE<T: FixedWidthInteger>(_ value: T) {
-        var be = value.bigEndian
-        Swift.withUnsafeBytes(of: &be) { raw in
-            guard let base = raw.baseAddress else { return }
-            self.append(base.bindMemory(to: UInt8.self, capacity: raw.count), count: raw.count)
-        }
-    }
-}
+// NOTE: No Data.appendBE here — we use the shared helper in Data+BigEndian.swift.

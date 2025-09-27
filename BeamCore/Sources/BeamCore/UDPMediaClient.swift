@@ -200,13 +200,19 @@ public final class UDPMediaClient: ObservableObject {
                 windowStart = now; bytesInWindow = 0; framesInWindow = 0
                 BeamLog.debug(String(format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu", stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
             }
+
+            // Avoid capturing non-Sendable structs by grabbing scalars.
+            let w = unit.width
+            let h = unit.height
+            let s = unit.seq
+
             decoder.decode(avcc: unit.avccData, paramSets: unit.paramSets) { [weak self] cg in
                 guard let self else { return }
                 if let cg, !self.sawFirstValidFrame {
                     self.sawFirstValidFrame = true
-                    BeamLog.info("UDP first valid H.264 frame ✓ \(unit.width)x\(unit.height) (seq \(unit.seq))", tag: "viewer")
+                    BeamLog.info("UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))", tag: "viewer")
                 }
-                Task { @MainActor in self.lastImage = cg }
+                self.lastImage = cg
             }
             return
         }

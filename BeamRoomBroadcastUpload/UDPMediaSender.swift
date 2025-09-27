@@ -12,7 +12,7 @@ import Network
 import OSLog
 import BeamCore
 
-final class UDPMediaSender {
+final class UDPMediaSender: @unchecked Sendable {
     private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "udp-sender")
     private var conn: NWConnection?
     private var currentKey: String?
@@ -20,16 +20,26 @@ final class UDPMediaSender {
     init() {
         // Observe media peer changes
         let name = CFNotificationName(BeamConfig.mediaPeerDarwinName as CFString)
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()), { _, observer, _, _, _ in
-            let me = Unmanaged<UDPMediaSender>.fromOpaque(observer!).takeUnretainedValue()
-            me.reconnectIfNeeded()
-        }, name.rawValue, nil, .deliverImmediately)
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
+            { _, observer, _, _, _ in
+                let me = Unmanaged<UDPMediaSender>.fromOpaque(observer!).takeUnretainedValue()
+                me.reconnectIfNeeded()
+            },
+            name.rawValue,
+            nil,
+            .deliverImmediately
+        )
         reconnectIfNeeded()
     }
 
     deinit {
         conn?.cancel(); conn = nil
-        CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+        CFNotificationCenterRemoveEveryObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        )
     }
 
     func reconnectIfNeeded() {
@@ -44,14 +54,16 @@ final class UDPMediaSender {
         conn?.cancel(); conn = nil
         guard let port = NWEndpoint.Port(rawValue: peer.port) else { return }
         let c = NWConnection(host: NWEndpoint.Host(peer.host), port: port, using: .udp)
-        c.stateUpdateHandler = { [weak self] st in
+        let logger = self.log
+
+        c.stateUpdateHandler = { st in
             switch st {
             case .ready:
-                self?.log.info("UDP ready to \(peer.host):\(peer.port)")
-                // send a tiny hello so Host logs the first packet, optional
+                logger.info("UDP ready to \(peer.host):\(peer.port)")
+                // Send a tiny hello so Host logs the first packet (optional)
                 c.send(content: Data([0x42,0x52,0x48,0x49,0x21]), completion: .contentProcessed { _ in })
-            case .failed(let e): self?.log.error("UDP failed: \(e.localizedDescription, privacy: .public)")
-            case .waiting(let e): self?.log.notice("UDP waiting: \(e.localizedDescription, privacy: .public)")
+            case .failed(let e): logger.error("UDP failed: \(e.localizedDescription, privacy: .public)")
+            case .waiting(let e): logger.notice("UDP waiting: \(e.localizedDescription, privacy: .public)")
             default: break
             }
         }
@@ -61,9 +73,10 @@ final class UDPMediaSender {
 
     func send(_ datagrams: [Data]) {
         guard let c = conn else { return }
+        let logger = self.log
         for d in datagrams {
-            c.send(content: d, completion: .contentProcessed { [weak self] err in
-                if let e = err { self?.log.error("UDP send error: \(e.localizedDescription, privacy: .public)") }
+            c.send(content: d, completion: .contentProcessed { err in
+                if let e = err { logger.error("UDP send error: \(e.localizedDescription, privacy: .public)") }
             })
         }
     }

@@ -14,7 +14,8 @@ public enum H264Wire {
     public static let magic: UInt32 = 0x424D5256
 
     // Bit flags (u16)
-    public struct Flags: OptionSet {
+    @frozen
+    public struct Flags: OptionSet, Sendable {
         public let rawValue: UInt16
         public init(rawValue: UInt16) { self.rawValue = rawValue }
         public static let keyframe    = Flags(rawValue: 1 << 0) // IDR
@@ -22,7 +23,8 @@ public enum H264Wire {
     }
 
     // Fixed BE header (20 bytes)
-    public struct Header: Equatable {
+    @frozen
+    public struct Header: Equatable, Sendable {
         public var seq: UInt32
         public var partIndex: UInt16
         public var partCount: UInt16
@@ -37,7 +39,8 @@ public enum H264Wire {
         }
     }
 
-    public struct ParamSets: Equatable {
+    @frozen
+    public struct ParamSets: Equatable, Sendable {
         public var sps: [Data]
         public var pps: [Data]
         public init(sps: [Data], pps: [Data]) { self.sps = sps; self.pps = pps }
@@ -104,12 +107,4 @@ public enum H264Wire {
     }
 }
 
-private extension Data {
-    mutating func appendBE<T: FixedWidthInteger>(_ value: T) {
-        var be = value.bigEndian
-        Swift.withUnsafeBytes(of: &be) { raw in
-            guard let base = raw.baseAddress else { return }
-            self.append(base.bindMemory(to: UInt8.self, capacity: raw.count), count: raw.count)
-        }
-    }
-}
+// NOTE: No Data.appendBE here — we use the shared helper in Data+BigEndian.swift.
