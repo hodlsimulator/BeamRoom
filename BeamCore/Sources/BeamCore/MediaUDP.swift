@@ -5,6 +5,10 @@
 //  Created by . . on 9/27/25.
 //
 //  Host-side UDP listener + tiny fake-frame sender used by the M3 preview.
+//  Updated: make test frames ≤ ~1,200 bytes so they are never IP-fragmented.
+//
+//  Wire format (unchanged):
+//  [u32 magic 'BMRM'][u32 seq][u16 w][u16 h] + BGRA32 pixels (premultiplied, byteOrder32Little)
 //
 
 import Foundation
@@ -21,12 +25,14 @@ final class MediaUDP: @unchecked Sendable {
     private var peerDesc: String? { activePeer?.endpoint.debugDescription }
 
     // MARK: - Test stream
+
     private var streamTimer: DispatchSourceTimer?
     private var seq: UInt32 = 0
 
-    // IMPORTANT: keep one datagram per frame under ~65 KB:
-    // 160 × 90 × 4 + 12 header = 57,612 bytes (safe).
-    private let w = 160, h = 90
+    // IMPORTANT:
+    // Keep each frame within a single UDP datagram to avoid fragmentation loss.
+    // 20 × 12 × 4 + 12 header = 972 bytes (safe over IPv4 & IPv6).
+    private let w = 20, h = 12
 
     // Optional debug sampler (summarise throughput)
     private var bytesInWindow: Int = 0
@@ -55,7 +61,7 @@ final class MediaUDP: @unchecked Sendable {
             params.requiredInterfaceType = .wifi
             params.includePeerToPeer = false
 
-            // Use port-less init; system assigns ephemeral port.
+            // Use port-less init; system assigns an ephemeral port.
             let lis = try NWListener(using: params)
             listener = lis
 
@@ -97,15 +103,12 @@ final class MediaUDP: @unchecked Sendable {
 
     func stop() {
         stopTestFrames()
-
         if let old = activePeer {
             BeamLog.warn("UDP peer closing: \(old.endpoint.debugDescription)", tag: "host")
         }
         activePeer?.cancel(); activePeer = nil
-
         listener?.cancel(); listener = nil
         onPeerChanged?(nil)
-
         BeamLog.info("Media UDP stopped", tag: "host")
     }
 
@@ -114,7 +117,10 @@ final class MediaUDP: @unchecked Sendable {
     private func installPeer(_ conn: NWConnection) {
         // Replace any existing peer
         if let old = activePeer {
-            BeamLog.warn("UDP peer replaced: \(old.endpoint.debugDescription) → \(conn.endpoint.debugDescription)", tag: "host")
+            BeamLog.warn(
+                "UDP peer replaced: \(old.endpoint.debugDescription) → \(conn.endpoint.debugDescription)",
+                tag: "host"
+            )
             old.cancel()
         }
 
@@ -193,7 +199,8 @@ final class MediaUDP: @unchecked Sendable {
         guard let peer = activePeer else {
             // If we’re streaming but have no peer, emit a deduped INFO breadcrumb every ~2s.
             let now = Date()
-            if streamTimer != nil, (lastNoPeerLogAt == nil || now.timeIntervalSince(lastNoPeerLogAt!) >= 2.0) {
+            if streamTimer != nil,
+               (lastNoPeerLogAt == nil || now.timeIntervalSince(lastNoPeerLogAt!) >= 2.0) {
                 lastNoPeerLogAt = now
                 BeamLog.info("Test stream ticking but no active UDP peer yet; skipping send", tag: "host")
             }
@@ -206,7 +213,10 @@ final class MediaUDP: @unchecked Sendable {
         // One-time INFO: first outbound frame
         if !sentFirstFrame {
             sentFirstFrame = true
-            BeamLog.info("UDP → first test frame \(w)x\(h) (\(payload.count) bytes) to \(peer.endpoint.debugDescription)", tag: "host")
+            BeamLog.info(
+                "UDP → first test frame \(w)x\(h) (\(payload.count) bytes) to \(peer.endpoint.debugDescription)",
+                tag: "host"
+            )
         }
 
         // Optional: DEBUG summary once per second; no per-frame spam.
@@ -227,9 +237,9 @@ final class MediaUDP: @unchecked Sendable {
         })
     }
 
-    /// Encode a tiny moving gradient as:
+    /// Encode a tiny moving gradient:
     /// Header: [u32 magic 'BMRM'][u32 seq][u16 w][u16 h] (big-endian)
-    /// Pixels: BGRA32, premultiplied (A=255)
+    /// Pixels: BGRA32, premultiplied (A=255), byteOrder32Little
     private func makeGradientFrame(seq: UInt32, w: Int, h: Int) -> Data {
         var out = Data(capacity: 12 + w * h * 4)
 
@@ -239,21 +249,19 @@ final class MediaUDP: @unchecked Sendable {
         out.appendBE(UInt16(w))
         out.appendBE(UInt16(h))
 
-        // Pixels
-        // Simple moving tricolour gradient; BGRA order for CGImage(byteOrder32Little + premultipliedFirst)
+        // Simple moving tricolour gradient
         let t = Double(seq) * 0.08
+        let maxX = max(1, w - 1)
+        let maxY = max(1, h - 1)
+
         for y in 0..<h {
-            let fy = Double(y) / Double(max(h - 1, 1))
             for x in 0..<w {
-                let fx = Double(x) / Double(max(w - 1, 1))
-                // 0..1 oscillators
-                let r = UInt8(max(0.0, min(1.0, 0.5 + 0.5 * sin(t + fx * .pi * 2.0))) * 255.0)
-                let g = UInt8(max(0.0, min(1.0, 0.5 + 0.5 * sin(t + fy * .pi * 2.0))) * 255.0)
-                let b = UInt8(max(0.0, min(1.0, 0.5 + 0.5 * sin(t + (fx + fy) * .pi))) * 255.0)
-                out.append(b) // B
-                out.append(g) // G
-                out.append(r) // R
-                out.append(255) // A
+                let fx = Double(x) / Double(maxX)
+                let fy = Double(y) / Double(maxY)
+                let r = UInt8((sin(fx * .pi * 2 + t) * 0.5 + 0.5) * 255)
+                let g = UInt8((sin(fy * .pi * 2 + t * 0.8) * 0.5 + 0.5) * 255)
+                let b = UInt8((sin((fx + fy) * .pi + t * 1.3) * 0.5 + 0.5) * 255)
+                out.append(contentsOf: [b, g, r, 255]) // BGRA
             }
         }
 
