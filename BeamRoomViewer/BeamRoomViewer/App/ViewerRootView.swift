@@ -12,6 +12,7 @@ import Combine
 import Network
 import UIKit
 import BeamCore
+
 #if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
 #endif
@@ -29,21 +30,25 @@ final class ViewerViewModel: ObservableObject {
 
     let browser = BeamBrowser()
     let client = BeamControlClient()
-    let media  = UDPMediaClient()
+    let media = UDPMediaClient()
 
     func startDiscovery() {
         do {
             try browser.start()
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if self.browser.hosts.isEmpty { self.showPermHint = true }
+                if self.browser.hosts.isEmpty {
+                    self.showPermHint = true
+                }
             }
         } catch {
             BeamLog.error("Discovery start error: \(error.localizedDescription)", tag: "viewer")
         }
     }
 
-    func stopDiscovery() { browser.stop() }
+    func stopDiscovery() {
+        browser.stop()
+    }
 
     // Don’t connect here — just open the sheet with a fresh code
     func pick(_ host: DiscoveredHost) {
@@ -77,20 +82,34 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    // MARK: M3 preview bootstrap (fixed)
     func maybeStartMedia() {
         guard case .paired(_, let maybePort) = client.status, let udpPort = maybePort else { return }
-        guard let host = selectedHost else { return }
+        guard let sel = selectedHost else { return }
 
-        // Prefer resolved IPv4 endpoint from the browser
-        let ep = host.connectEndpoint
-        if case let .hostPort(host: h, port: _) = ep {
+        // Re-acquire the freshest copy of this host from the browser (the one with resolved IPv4)
+        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
+
+        // 1) Prefer resolved IPv4 endpoint from the browser
+        if let pref = updated.preferredEndpoint, case let .hostPort(host: h, port: _) = pref {
             media.connect(toHost: h, port: udpPort)
-        } else if let pref = host.preferredEndpoint, case let .hostPort(host: h, port: _) = pref {
-            media.connect(toHost: h, port: udpPort)
-        } else {
-            // Fallback: we don't have a resolved IPv4; skip for now.
-            BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
+            return
         }
+
+        // 2) Fall back to the *connected* control link’s resolved remote host
+        if let h = client.udpHostCandidate() {
+            media.connect(toHost: h, port: udpPort)
+            return
+        }
+
+        // 3) Last resort: if the original endpoint was already a host:port
+        if case let .hostPort(host: h, port: _) = updated.endpoint {
+            media.connect(toHost: h, port: udpPort)
+            return
+        }
+
+        // If we reach here, we still don’t have a host IP to dial for UDP
+        BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
     }
 }
 
@@ -161,8 +180,10 @@ struct ViewerRootView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(maxHeight: 180)
                         Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
-                                    model.media.stats.fps, model.media.stats.kbps, model.media.stats.drops))
-                            .font(.caption).foregroundStyle(.secondary)
+                                    model.media.stats.fps,
+                                    model.media.stats.kbps,
+                                    model.media.stats.drops))
+                        .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
@@ -191,8 +212,7 @@ struct ViewerRootView: View {
 }
 
 private extension ViewerRootView {
-    @ViewBuilder
-    func awarePickButton() -> some View {
+    @ViewBuilder func awarePickButton() -> some View {
         Button {
             model.showAwareSheet = true
         } label: {
@@ -204,8 +224,7 @@ private extension ViewerRootView {
         .buttonStyle(.bordered)
     }
 
-    @ViewBuilder
-    func awarePickSheet() -> some View {
+    @ViewBuilder func awarePickSheet() -> some View {
         #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
@@ -224,29 +243,23 @@ private extension ViewerRootView {
                     VStack(spacing: 12) {
                         Text("Wi-Fi Aware not available.")
                         Button("Close") { model.showAwareSheet = false }
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
-                    }
-                    .padding()
+                            .lineLimit(1).minimumScaleFactor(0.9)
+                    }.padding()
                 }
             )
         } else {
             VStack(spacing: 12) {
                 Text("Wi-Fi Aware service not available.")
                 Button("Close") { model.showAwareSheet = false }
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-            }
-            .padding()
+                    .lineLimit(1).minimumScaleFactor(0.9)
+            }.padding()
         }
         #else
         VStack(spacing: 12) {
             Text("Wi-Fi Aware UI isn’t available on this build configuration.")
             Button("Close") { model.showAwareSheet = false }
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
-        }
-        .padding()
+                .lineLimit(1).minimumScaleFactor(0.9)
+        }.padding()
         #endif
     }
 }
@@ -294,16 +307,20 @@ private struct PairSheet: View {
                     Label(model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
                           systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
                         .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
+
                     if let u = udp {
                         Text("Media UDP port: \(u)")
                             .font(.caption).foregroundStyle(.secondary)
+
                         if let cg = model.media.lastImage {
                             Image(uiImage: UIImage(cgImage: cg))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(maxHeight: 180)
                             Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
-                                        model.media.stats.fps, model.media.stats.kbps, model.media.stats.drops))
+                                        model.media.stats.fps,
+                                        model.media.stats.kbps,
+                                        model.media.stats.drops))
                                 .font(.caption).foregroundStyle(.secondary)
                         } else {
                             Text("Waiting for test frames…")
@@ -342,15 +359,13 @@ private struct PairSheet: View {
                     gen.notificationOccurred(.success)
                 }
                 // Kick UDP hello when we learn the udpPort.
-                if case .paired = new {
-                    model.maybeStartMedia()
-                }
+                if case .paired = new { model.maybeStartMedia() }
             }
-            .onAppear {
-                model.maybeStartMedia()
-            }
+            .onAppear { model.maybeStartMedia() }
         }
     }
 }
 
-#Preview { ViewerRootView() }
+#Preview {
+    ViewerRootView()
+}

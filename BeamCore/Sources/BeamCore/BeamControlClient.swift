@@ -31,7 +31,7 @@ public final class BeamControlClient: ObservableObject {
     private var rxBuffer = Data()
     private var attemptSeq: Int = 0
     private var attemptID: Int = 0
-    private var handshakeTimeoutTask: Task<Void, Never>?   // typed
+    private var handshakeTimeoutTask: Task<Void, Never>?
 
     // Heartbeat (app-level)
     private var hbTimer: DispatchSourceTimer?
@@ -48,13 +48,29 @@ public final class BeamControlClient: ObservableObject {
         String(format: "%04d", Int.random(in: 0...9999))
     }
 
+    // MARK: - UDP host helper for M3
+    /// Returns the concrete remote host (IPv4/IPv6) that the control connection resolved to.
+    /// Use this as a fallback for the UDP media path when the browser hasn’t finished resolving.
+    public func udpHostCandidate() -> NWEndpoint.Host? {
+        guard let c = connection else { return nil }
+        if let ep = c.currentPath?.remoteEndpoint, case let .hostPort(host, _) = ep {
+            return host
+        }
+        // If we connected using an IPv4/IPv6 endpoint already, use that host.
+        if case let .hostPort(host, _) = c.endpoint {
+            return host
+        }
+        return nil
+    }
+
     // MARK: Lifecycle
 
     @MainActor
     public func connect(to host: DiscoveredHost, code: String) {
         // Debounce: ignore while connecting/waiting/paired
         switch status {
-        case .idle, .failed: break
+        case .idle, .failed:
+            break
         default:
             BeamLog.warn("connect() ignored; status=\(String(describing: status))", tag: "viewer")
             return
@@ -62,7 +78,6 @@ public final class BeamControlClient: ObservableObject {
 
         // Tear down any prior attempt
         disconnect()
-
         attemptSeq += 1
         attemptID = attemptSeq
 
@@ -77,7 +92,6 @@ public final class BeamControlClient: ObservableObject {
         let conn = NWConnection(to: endpoint, using: params)
         self.connection = conn
         self.status = .connecting(hostName: hostName, remote: remoteDesc)
-
         let idForLogs = attemptID
 
         conn.stateUpdateHandler = { [weak self] state in
@@ -109,8 +123,11 @@ public final class BeamControlClient: ObservableObject {
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
                     self.stopLivenessWatch()
-                    if case .failed = self.status { /* keep failed */ }
-                    else { self.status = .idle }
+                    if case .failed = self.status {
+                        /* keep failed */
+                    } else {
+                        self.status = .idle
+                    }
                 }
 
             default:
