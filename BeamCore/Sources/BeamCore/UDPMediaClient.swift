@@ -4,7 +4,8 @@
 //
 //  Created by . . on 9/27/25.
 //
-// Viewer-side UDP media receiver + tiny test-frame decoder (BGRA32)
+//  Viewer-side UDP media receiver + tiny test-frame decoder (BGRA32)
+//  Updated 2025-09-27: add periodic keep-alives so Host retains the active peer.
 //
 
 import Foundation
@@ -26,7 +27,6 @@ private func udpIfaceTypeString(_ t: NWInterface.InterfaceType) -> String {
     @unknown default: return "other"
     }
 }
-
 private func udpPathSummary(_ path: NWPath?) -> String {
     guard let p = path else { return "path=?" }
     let ifs = p.availableInterfaces.map { udpIfaceTypeString($0.type) }.joined(separator: ",")
@@ -63,8 +63,12 @@ public final class UDPMediaClient: ObservableObject {
     private var badSizeCount: UInt64 = 0
     private var lastSummaryAt = Date()
 
-    // New: warn if no datagrams soon after ready
+    // Warn if no datagrams soon after ready
     private var afterReadyWarnTimer: DispatchSourceTimer?
+
+    // NEW: periodic keep-alive ("BRHI!") so Host retains peer mapping.
+    private var keepaliveTimer: DispatchSourceTimer?
+    private let keepaliveInterval: TimeInterval = 2.5
 
     public init() {}
 
@@ -74,7 +78,6 @@ public final class UDPMediaClient: ObservableObject {
             BeamLog.debug("UDP connect de-dupe → already \(key)", tag: "viewer")
             return
         }
-
         disconnect()
         connectedKey = key
 
@@ -95,7 +98,6 @@ public final class UDPMediaClient: ObservableObject {
         c.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             let ps = udpPathSummary(c.currentPath)
-
             switch state {
             case .setup:
                 BeamLog.debug("UDP state=setup (\(ps))", tag: "viewer")
@@ -109,6 +111,7 @@ public final class UDPMediaClient: ObservableObject {
                 Task { @MainActor in
                     self.sendHello()
                     self.startAfterReadyWarnTimer(host: host, port: port)
+                    self.startKeepalives()
                     self.receiveLoop()
                 }
 
@@ -135,9 +138,8 @@ public final class UDPMediaClient: ObservableObject {
 
     public func disconnect() {
         afterReadyWarnTimer?.cancel(); afterReadyWarnTimer = nil
-        conn?.cancel()
-        conn = nil
-
+        stopKeepalives()
+        conn?.cancel(); conn = nil
         lastImage = nil
         stats = .init()
         bytesInWindow = 0
@@ -202,21 +204,18 @@ public final class UDPMediaClient: ObservableObject {
             maybeSummarise()
             return
         }
-
         let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).bigEndian }
         guard magic == 0x424D524D /* 'BMRM' */ else {
             badMagicCount &+= 1
             maybeSummarise()
             return
         }
-
         let seq = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
         let w = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
         let h = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
 
         let pixelBytes = data.count - 12
         let expected = w * h * 4
-
         guard pixelBytes == expected, expected > 0 else {
             badSizeCount &+= 1
             maybeSummarise(extra: "badSize got=\(pixelBytes) want=\(expected) w=\(w) h=\(h)")
@@ -229,6 +228,7 @@ public final class UDPMediaClient: ObservableObject {
         }
         stats.lastSeq = seq
         stats.frames &+= 1
+
         bytesInWindow += data.count
         framesInWindow &+= 1
 
@@ -240,23 +240,22 @@ public final class UDPMediaClient: ObservableObject {
             windowStart = now
             bytesInWindow = 0
             framesInWindow = 0
-            BeamLog.debug(String(format: "UDP preview rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
-                                 stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
+            BeamLog.debug(
+                String(format: "UDP preview rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
+                       stats.fps, stats.kbps, stats.frames, stats.drops),
+                tag: "viewer"
+            )
         }
 
         // Image (BGRA32, premultipliedFirst, byteOrder32Little)
         let pixels = data.subdata(in: 12..<(12 + pixelBytes)) as CFData
         let provider = CGDataProvider(data: pixels)
         let cs = CGColorSpaceCreateDeviceRGB()
-        let bmp: CGBitmapInfo = [.byteOrder32Little,
-                                 CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)]
+        let bmp: CGBitmapInfo = [.byteOrder32Little, CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)]
         let rowBytes = w * 4
-
         if let provider,
-           let img = CGImage(width: w, height: h,
-                             bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
-                             space: cs, bitmapInfo: bmp,
-                             provider: provider, decode: nil,
+           let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
+                             space: cs, bitmapInfo: bmp, provider: provider, decode: nil,
                              shouldInterpolate: true, intent: .defaultIntent) {
             if !sawFirstValidFrame {
                 sawFirstValidFrame = true
@@ -275,11 +274,10 @@ public final class UDPMediaClient: ObservableObject {
             var bits: [String] = []
             if shortHeaderCount > 0 { bits.append("short \(shortHeaderCount)") }
             if badMagicCount > 0 { bits.append("badMagic \(badMagicCount)") }
-            if badSizeCount  > 0 { bits.append("badSize \(badSizeCount)") }
+            if badSizeCount > 0 { bits.append("badSize \(badSizeCount)") }
             if !bits.isEmpty {
                 // Escalate to INFO so it shows up without switching to Debug.
-                BeamLog.info("UDP rx rejects: " + bits.joined(separator: " • ")
-                             + (extra != nil ? " • \(extra!)" : ""), tag: "viewer")
+                BeamLog.info("UDP rx rejects: " + bits.joined(separator: " • ") + (extra != nil ? " • \(extra!)" : ""), tag: "viewer")
             }
         }
     }
@@ -300,5 +298,22 @@ public final class UDPMediaClient: ObservableObject {
         }
         t.resume()
         afterReadyWarnTimer = t
+    }
+
+    private func startKeepalives() {
+        stopKeepalives()
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + keepaliveInterval, repeating: keepaliveInterval)
+        t.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.sendHello() // small 5-byte ping we already handle on Host
+        }
+        t.resume()
+        keepaliveTimer = t
+    }
+
+    private func stopKeepalives() {
+        keepaliveTimer?.cancel()
+        keepaliveTimer = nil
     }
 }

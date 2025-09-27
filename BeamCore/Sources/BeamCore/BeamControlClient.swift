@@ -4,7 +4,7 @@
 //
 //  Created by . . on 9/22/25.
 //
-// Viewer-side TCP control client
+//  Viewer-side TCP control client with auto-retry + liveness.
 //
 
 import Foundation
@@ -27,8 +27,10 @@ public final class BeamControlClient: ObservableObject {
     @Published public private(set) var status: Status = .idle
     @Published public private(set) var broadcastOn: Bool = BeamConfig.isBroadcastOn() // latest known from Host
 
+    // MARK: Internals
     private var connection: NWConnection?
     private var rxBuffer = Data()
+
     private var attemptSeq: Int = 0
     private var attemptID: Int = 0
     private var handshakeTimeoutTask: Task<Void, Never>?
@@ -42,6 +44,14 @@ public final class BeamControlClient: ObservableObject {
     private var livenessTimer: DispatchSourceTimer?
     private let livenessGrace: TimeInterval = 15
 
+    // Auto-retry
+    private var autoRetryEnabled: Bool = false
+    private var retryTask: Task<Void, Never>?
+    private var retryIndex: Int = 0
+    private let retrySchedule: [TimeInterval] = [1, 2, 3, 5, 8, 10]
+    private var lastTargetHost: DiscoveredHost?
+    private var lastCode: String?
+
     public init() {}
 
     public static func randomCode() -> String {
@@ -49,10 +59,12 @@ public final class BeamControlClient: ObservableObject {
     }
 
     // MARK: - UDP host helper for M3
+
     /// Returns the concrete remote host (IPv4/IPv6) that the control connection resolved to.
     /// Use this as a fallback for the UDP media path when the browser hasn’t finished resolving.
     public func udpHostCandidate() -> NWEndpoint.Host? {
         guard let c = connection else { return nil }
+
         if let ep = c.currentPath?.remoteEndpoint, case let .hostPort(host, _) = ep {
             return host
         }
@@ -76,8 +88,16 @@ public final class BeamControlClient: ObservableObject {
             return
         }
 
-        // Tear down any prior attempt
-        disconnect()
+        // Tear down prior attempt
+        disconnectInternal(setIdle: false)
+
+        // Remember target for auto-retry
+        lastTargetHost = host
+        lastCode = code
+        autoRetryEnabled = true
+        retryIndex = 0
+        cancelRetry()
+
         attemptSeq += 1
         attemptID = attemptSeq
 
@@ -102,6 +122,7 @@ public final class BeamControlClient: ObservableObject {
                 clientLog.info("Control ready to \(hostName, privacy: .public)")
                 BeamLog.info("conn#\(idForLogs) ready (path=\(ps)) → send handshake", tag: "viewer")
                 Task { @MainActor in
+                    self.cancelRetry()
                     self.sendHandshake(code: code)
                     self.receiveLoop()
                 }
@@ -115,6 +136,7 @@ public final class BeamControlClient: ObservableObject {
                     self.status = .failed(reason: err.localizedDescription)
                     self.connection?.cancel()
                     self.connection = nil
+                    self.scheduleRetry(because: err.localizedDescription)
                 }
 
             case .cancelled:
@@ -123,11 +145,13 @@ public final class BeamControlClient: ObservableObject {
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
                     self.stopLivenessWatch()
+                    // Keep .failed if already set, else fall back to idle
                     if case .failed = self.status {
-                        /* keep failed */
+                        // already failed
                     } else {
                         self.status = .idle
                     }
+                    self.scheduleRetry(because: "cancelled")
                 }
 
             default:
@@ -136,28 +160,29 @@ public final class BeamControlClient: ObservableObject {
         }
 
         // Extra diagnostics
-        conn.viabilityUpdateHandler = { isViable in
-            BeamLog.debug("conn#\(idForLogs) viable=\(isViable)", tag: "viewer")
-        }
-        conn.betterPathUpdateHandler = { hasBetter in
-            BeamLog.debug("conn#\(idForLogs) betterPath=\(hasBetter)", tag: "viewer")
-        }
-        conn.pathUpdateHandler = { path in
-            BeamLog.debug("conn#\(idForLogs) pathUpdate=\(pathSummary(path))", tag: "viewer")
-        }
+        conn.viabilityUpdateHandler = { isViable in BeamLog.debug("conn#\(idForLogs) viable=\(isViable)", tag: "viewer") }
+        conn.betterPathUpdateHandler = { hasBetter in BeamLog.debug("conn#\(idForLogs) betterPath=\(hasBetter)", tag: "viewer") }
+        conn.pathUpdateHandler = { path in BeamLog.debug("conn#\(idForLogs) pathUpdate=\(pathSummary(path))", tag: "viewer") }
 
         conn.start(queue: .main)
     }
 
     @MainActor
     public func disconnect() {
+        // Manual disconnect disables auto-retry
+        autoRetryEnabled = false
+        cancelRetry()
+        disconnectInternal(setIdle: true)
+        BeamLog.info("Disconnected", tag: "viewer")
+    }
+
+    private func disconnectInternal(setIdle: Bool) {
         handshakeTimeoutTask?.cancel(); handshakeTimeoutTask = nil
         stopHeartbeats()
         stopLivenessWatch()
         connection?.cancel(); connection = nil
         rxBuffer.removeAll()
-        status = .idle
-        BeamLog.info("Disconnected", tag: "viewer")
+        if setIdle { status = .idle }
     }
 
     // MARK: Handshake / IO
@@ -181,6 +206,9 @@ public final class BeamControlClient: ObservableObject {
                     guard let self else { return }
                     if case .waitingAcceptance = self.status {
                         BeamLog.warn("conn#\(self.attemptID) WAIT TIMEOUT (no Host accept)", tag: "viewer")
+                        self.status = .failed(reason: "No response from Host")
+                        self.connection?.cancel()
+                        self.scheduleRetry(because: "no accept")
                     }
                 }
             }
@@ -188,12 +216,14 @@ public final class BeamControlClient: ObservableObject {
             status = .failed(reason: "Encode failed")
             conn.cancel()
             BeamLog.error("conn#\(attemptID) encode fail: \(error.localizedDescription)", tag: "viewer")
+            scheduleRetry(because: "encode fail")
         }
     }
 
     private func receiveLoop() {
         guard let conn = connection else { return }
         let id = attemptID
+
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isEOF, error in
             guard let self else { return }
 
@@ -209,14 +239,18 @@ public final class BeamControlClient: ObservableObject {
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
                     self.stopLivenessWatch()
+
+                    let reason = error?.localizedDescription ?? (isEOF ? "Disconnected" : "Closed")
                     if case .paired = self.status {
                         // keep paired label; UI will sort it out
+                        self.status = .failed(reason: reason)
                     } else if case .failed = self.status {
                         // keep failed
                     } else {
-                        self.status = .failed(reason: "Disconnected")
+                        self.status = .failed(reason: reason)
                     }
                     self.connection?.cancel(); self.connection = nil
+                    self.scheduleRetry(because: reason)
                 }
                 BeamLog.warn("conn#\(id) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "viewer")
                 return
@@ -231,6 +265,7 @@ public final class BeamControlClient: ObservableObject {
         if let bs = try? JSONDecoder().decode(BroadcastStatus.self, from: line) {
             broadcastOn = bs.on
             BeamLog.info("Broadcast status → \(bs.on ? "ON" : "OFF")", tag: "viewer")
+            lastRxAt = Date()
             return
         }
 
@@ -248,6 +283,7 @@ public final class BeamControlClient: ObservableObject {
                     let reason = resp.message ?? "Rejected"
                     self.status = .failed(reason: reason)
                     BeamLog.warn("Pairing rejected: \(reason)", tag: "viewer")
+                    self.scheduleRetry(because: "rejected")
                 }
             }
             return
@@ -259,6 +295,7 @@ public final class BeamControlClient: ObservableObject {
                 status = .paired(session: sid, udpPort: mp.udpPort)
                 BeamLog.info("Media params: udpPort=\(mp.udpPort)", tag: "viewer")
             }
+            lastRxAt = Date()
             return
         }
 
@@ -296,8 +333,7 @@ public final class BeamControlClient: ObservableObject {
 
     @MainActor
     private func stopHeartbeats() {
-        hbTimer?.cancel()
-        hbTimer = nil
+        hbTimer?.cancel(); hbTimer = nil
     }
 
     // MARK: Liveness diagnostics
@@ -305,6 +341,7 @@ public final class BeamControlClient: ObservableObject {
     @MainActor
     private func startLivenessWatch() {
         stopLivenessWatch()
+        lastRxAt = Date()
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + livenessGrace, repeating: livenessGrace)
         t.setEventHandler { [weak self] in
@@ -316,6 +353,7 @@ public final class BeamControlClient: ObservableObject {
                 BeamLog.warn("LIVENESS: no host traffic for \(Int(gap))s; marking failed (will close)", tag: "viewer")
                 self.status = .failed(reason: "Lost contact with host")
                 self.connection?.cancel()
+                self.scheduleRetry(because: "liveness")
             }
         }
         t.resume()
@@ -324,7 +362,35 @@ public final class BeamControlClient: ObservableObject {
 
     @MainActor
     private func stopLivenessWatch() {
-        livenessTimer?.cancel()
-        livenessTimer = nil
+        livenessTimer?.cancel(); livenessTimer = nil
+    }
+
+    // MARK: Auto-retry
+
+    @MainActor
+    private func scheduleRetry(because reason: String) {
+        guard autoRetryEnabled, let host = lastTargetHost, let code = lastCode else { return }
+
+        // If user closed the sheet or called disconnect(), don't retry.
+        if case .idle = status, !autoRetryEnabled { return }
+
+        let idx = min(retryIndex, retrySchedule.count - 1)
+        let delay = retrySchedule[idx]
+        retryIndex = min(retryIndex + 1, retrySchedule.count - 1)
+
+        BeamLog.warn("Auto-retry in \(Int(delay))s (reason: \(reason))", tag: "viewer")
+
+        cancelRetry()
+        retryTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            await self.connect(to: host, code: code)
+        }
+    }
+
+    @MainActor
+    private func cancelRetry() {
+        retryTask?.cancel()
+        retryTask = nil
     }
 }

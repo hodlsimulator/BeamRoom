@@ -4,6 +4,11 @@
 //
 //  Created by . . on 9/21/25.
 //
+//  Updated: 2025-09-27
+//  - Large, accessible VerbosityDial (chips) with haptics
+//  - FIX: avoid passing a view (Color.opacity) where a ShapeStyle is required
+//  - Uses system Material so it adopts iOS 26 styling automatically
+//
 
 import SwiftUI
 import UIKit
@@ -29,59 +34,57 @@ public struct BeamLogView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Text("Debug Log")
-                .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
-
-            Spacer(minLength: 8)
-
-            Picker("Verbosity", selection: $log.minLevel) {
-                Text("Debug").tag(BeamLogLevel.debug)
-                Text("Info").tag(BeamLogLevel.info)
-                Text("Warn").tag(BeamLogLevel.warn)
-                Text("Error").tag(BeamLogLevel.error)
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 360)
-
-            Toggle("Auto-scroll", isOn: $autoScroll)
-                .toggleStyle(.switch)
-                .labelsHidden()
-
-            Button {
-                UIPasteboard.general.string = log.dumpText()
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-                    .labelStyle(.titleAndIcon)
+        VStack(alignment: .leading, spacing: 10) {
+            // Top row: title + compact controls
+            HStack(spacing: 10) {
+                Text("Debug Log")
+                    .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
-            }
-            .buttonStyle(.bordered)
 
-            Button {
-                shareText = log.dumpText()
-                showShare = true
-            } label: {
-                Label("Share", systemImage: "square.and.arrow.up")
-                    .labelStyle(.titleAndIcon)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-            }
-            .buttonStyle(.bordered)
+                Spacer(minLength: 8)
 
-            Button(role: .destructive) {
-                BeamInAppLog.shared.clear()
-            } label: {
-                Label("Clear", systemImage: "trash")
-                    .labelStyle(.titleAndIcon)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                Toggle("Auto-scroll", isOn: $autoScroll)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+
+                Button {
+                    UIPasteboard.general.string = log.dumpText()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    shareText = log.dumpText()
+                    showShare = true
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                }
+                .buttonStyle(.bordered)
+
+                Button(role: .destructive) {
+                    BeamInAppLog.shared.clear()
+                } label: {
+                    Label("Clear", systemImage: "trash")
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
+
+            // Large, easy Verbosity “dial”
+            VerbosityDial(level: $log.minLevel)
         }
         .padding(12)
+        .background(.thinMaterial) // adopts iOS 26 look automatically
     }
 
     private var logList: some View {
@@ -98,7 +101,9 @@ public struct BeamLogView: View {
             .onChange(of: log.entries.last?.id) { _, newID in
                 guard autoScroll, let id = newID else { return }
                 lastID = id
-                withAnimation(.easeOut) { proxy.scrollTo(id, anchor: .bottom) }
+                withAnimation(.easeOut) {
+                    proxy.scrollTo(id, anchor: .bottom)
+                }
             }
             .onAppear {
                 if let id = log.entries.last?.id {
@@ -109,6 +114,139 @@ public struct BeamLogView: View {
         }
     }
 }
+
+// MARK: - Verbosity Dial (large, chip-based)
+
+private struct VerbosityDial: View {
+    @Binding var level: BeamLogLevel
+
+    // Left → right, least → most verbose
+    private let ordered: [BeamLogLevel] = [.error, .warn, .info, .debug]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Label row
+            HStack(spacing: 8) {
+                Image(systemName: "speaker.slash")
+                    .accessibilityHidden(true)
+                Text("Verbosity")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(humanLabel(for: level))
+                    .font(.subheadline.monospaced())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule().fill(color(for: level))
+                            .opacity(0.12) // view opacity (not ShapeStyle)
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(color(for: level), lineWidth: 1)
+                            .opacity(0.35)
+                    )
+                    .accessibilityHidden(true)
+                Image(systemName: "speaker.wave.3")
+                    .accessibilityHidden(true)
+            }
+
+            // Big, tap-friendly chip row
+            HStack(spacing: 8) {
+                ForEach(ordered, id: \.self) { lv in
+                    levelChip(for: lv)
+                        .onTapGesture {
+                            if level != lv {
+                                level = lv
+                                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                            }
+                        }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Verbosity")
+            .accessibilityValue(humanLabel(for: level))
+        }
+    }
+
+    @ViewBuilder
+    private func levelChip(for lv: BeamLogLevel) -> some View {
+        let selected = (lv.rank == level.rank)
+
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+
+        HStack(spacing: 6) {
+            Image(systemName: icon(for: lv))
+            Text(shortLabel(for: lv))
+                .font(.body.weight(.semibold))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(minWidth: 88)
+        .contentShape(shape)
+        .foregroundStyle(selected ? color(for: lv) : .primary)
+        // Background: use Material by default (adopts iOS 26), tint when selected
+        .background(
+            Group {
+                if selected {
+                    shape.fill(color(for: lv))
+                        .opacity(0.18) // apply opacity to the filled view
+                } else {
+                    shape.fill(.ultraThinMaterial) // pure ShapeStyle, no .opacity chaining
+                }
+            }
+        )
+        // Stroke: choose style first, then apply view opacity
+        .overlay(
+            shape
+                .stroke(selected ? color(for: lv) : Color.secondary,
+                        lineWidth: selected ? 1.5 : 1)
+                .opacity(selected ? 0.55 : 0.25)
+        )
+        .animation(.easeOut(duration: 0.15), value: selected)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityLabel(humanLabel(for: lv))
+        .accessibilityHint(selected ? "Current level" : "Set verbosity to \(humanLabel(for: lv))")
+    }
+
+    private func shortLabel(for lv: BeamLogLevel) -> String {
+        switch lv {
+        case .error: return "Errors"
+        case .warn:  return "Warnings"
+        case .info:  return "Info"
+        case .debug: return "Debug"
+        }
+    }
+
+    private func humanLabel(for lv: BeamLogLevel) -> String {
+        switch lv {
+        case .error: return "Errors only"
+        case .warn:  return "Warnings and errors"
+        case .info:  return "Info, warnings, errors"
+        case .debug: return "Everything (debug)"
+        }
+    }
+
+    private func icon(for lv: BeamLogLevel) -> String {
+        switch lv {
+        case .error: return "xmark.octagon.fill"
+        case .warn:  return "exclamationmark.triangle.fill"
+        case .info:  return "info.circle.fill"
+        case .debug: return "ladybug.fill"
+        }
+    }
+
+    private func color(for lv: BeamLogLevel) -> Color {
+        switch lv {
+        case .error: return .red
+        case .warn:  return .orange
+        case .info:  return .blue
+        case .debug: return .secondary
+        }
+    }
+}
+
+// MARK: - Log row
 
 private struct LogRow: View {
     let entry: BeamLogEntry
@@ -156,10 +294,14 @@ private struct LogRow: View {
     }
 }
 
+// MARK: - Share sheet wrapper
+
 private struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
+
     func makeUIViewController(context: Context) -> UIActivityViewController {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
+
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
