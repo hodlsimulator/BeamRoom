@@ -9,7 +9,7 @@ import Foundation
 import Network
 import OSLog
 
-private let serverLog  = Logger(subsystem: BeamConfig.subsystemHost, category: "control-server")
+private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "control-server")
 private let bonjourLog = Logger(subsystem: BeamConfig.subsystemHost, category: "bonjour")
 
 public struct PendingPair: Identifiable, Equatable {
@@ -19,7 +19,9 @@ public struct PendingPair: Identifiable, Equatable {
     public let remoteDescription: String
     fileprivate let connection: NWConnection
     public let connID: Int
+
     public static func == (lhs: PendingPair, rhs: PendingPair) -> Bool { lhs.id == rhs.id }
+
     public init(code: String, remoteDescription: String, connection: NWConnection, connID: Int) {
         self.code = code
         self.receivedAt = Date()
@@ -53,13 +55,18 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private var connSeq: Int = 0
     private var connIDs: [ObjectIdentifier: Int] = [:]
 
-    // Heartbeats
+    // Heartbeats (outbound from host)
     private var hbTimer: DispatchSourceTimer?
     private let hbInterval: TimeInterval = 5
 
     // Bonjour recovery
     private var bonjourName: String?
     private var bonjourBackoffAttempt: Int = 0
+
+    // Liveness diagnostics (inbound from viewer)
+    private var livenessTimer: DispatchSourceTimer?
+    private let livenessGrace: TimeInterval = 15
+    private var lastRxAtByConn: [ObjectIdentifier: Date] = [:]
 
     // Auto-accept control (toggle from UI)
     public var autoAccept: Bool
@@ -103,6 +110,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
                 let ps = pathSummary(conn.currentPath)
                 BeamLog.info("conn#\(cid) accepted (remote=\(remote), path=\(ps))", tag: "host")
+                // Seed liveness timestamp so we don’t instantly trip before first rx
+                self.lastRxAtByConn[key] = Date()
                 self.handleIncoming(conn)
             }
         }
@@ -116,13 +125,15 @@ public final class BeamControlServer: NSObject, ObservableObject {
         ns.delegate = self
         ns.publish()
         self.netService = ns
+
         self.publishedName = serviceName
         self.bonjourName = serviceName
         self.bonjourBackoffAttempt = 0
 
         startHeartbeats()
-
+        startLivenessWatch()
         self.isRunning = true
+
         serverLog.info("Control server started on \(BeamConfig.controlPort), bonjour '\(serviceName)'")
         BeamLog.info("Host advertising '\(serviceName)' \(BeamConfig.controlService) on \(BeamConfig.controlPort)", tag: "host")
     }
@@ -130,14 +141,18 @@ public final class BeamControlServer: NSObject, ObservableObject {
     @MainActor
     public func stop() {
         stopHeartbeats()
+        stopLivenessWatch()
         netService?.stop(); netService = nil
         listener?.cancel(); listener = nil
+
         for c in connections { c.cancel() }
         connections.removeAll()
         rxBuffers.removeAll()
+        lastRxAtByConn.removeAll()
         pendingPairs.removeAll()
         pendingByID.removeAll()
         connIDs.removeAll()
+
         publishedName = nil
         isRunning = false
         serverLog.info("Control server stopped")
@@ -185,6 +200,12 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 BeamLog.error("conn#\(cid) failed: \(err.localizedDescription)", tag: "host")
             }
         }
+        conn.viabilityUpdateHandler = { isViable in
+            BeamLog.debug("conn#\(cid) viable=\(isViable)", tag: "host")
+        }
+        conn.betterPathUpdateHandler = { hasBetter in
+            BeamLog.debug("conn#\(cid) betterPath=\(hasBetter)", tag: "host")
+        }
 
         conn.start(queue: .main)
         receiveLoop(conn)
@@ -196,8 +217,12 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isEOF, error in
             guard let self else { return }
+
             if let data, !data.isEmpty {
                 Task { @MainActor in
+                    // Liveness: any inbound traffic refreshes the timestamp
+                    self.lastRxAtByConn[key] = Date()
+
                     BeamLog.debug("conn#\(cid) rx \(data.count) bytes", tag: "host")
                     var buf = self.rxBuffers[key] ?? Data()
                     for line in Frame.drainLines(buffer: &buf, incoming: data) {
@@ -206,15 +231,18 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     self.rxBuffers[key] = buf
                 }
             }
+
             if isEOF || error != nil {
                 Task { @MainActor in
                     self.rxBuffers.removeValue(forKey: key)
+                    self.lastRxAtByConn.removeValue(forKey: key)
                     BeamLog.warn("conn#\(cid) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
                     conn.cancel()
                     self.connections.removeAll { $0 === conn }
                 }
                 return
             }
+
             self.receiveLoop(conn)
         }
     }
@@ -226,7 +254,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
         // 1) Handshake FIRST
         if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
             let remote = conn.currentPath?.remoteEndpoint?.debugDescription ?? "peer"
-
             if self.autoAccept {
                 let sid = UUID()
                 let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
@@ -235,7 +262,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 BeamLog.info("conn#\(cid) AUTO-ACCEPT code \(req.code) → session \(sid)", tag: "host")
                 return
             }
-
             let p = PendingPair(code: req.code, remoteDescription: remote, connection: conn, connID: cid)
             pendingByID[p.id] = p
             pendingPairs.append(p)
@@ -269,7 +295,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         }
     }
 
-    // MARK: Heartbeats
+    // MARK: Heartbeats (host → viewers)
 
     @MainActor
     private func startHeartbeats() {
@@ -299,10 +325,43 @@ public final class BeamControlServer: NSObject, ObservableObject {
         hbTimer?.cancel()
         hbTimer = nil
     }
+
+    // MARK: Liveness diagnostics (viewer → host)
+
+    @MainActor
+    private func startLivenessWatch() {
+        stopLivenessWatch()
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + livenessGrace, repeating: livenessGrace)
+        t.setEventHandler { [weak self] in
+            guard let self else { return }
+            let now = Date()
+            for c in self.connections {
+                let key = ObjectIdentifier(c)
+                let last = self.lastRxAtByConn[key] ?? now
+                let gap = now.timeIntervalSince(last)
+                if gap > self.livenessGrace {
+                    let id = self.cid(for: c)
+                    BeamLog.warn("LIVENESS: no viewer traffic on conn#\(id) for \(Int(gap))s; closing", tag: "host")
+                    self.lastRxAtByConn.removeValue(forKey: key)
+                    c.cancel()
+                    self.connections.removeAll { $0 === c }
+                    self.rxBuffers.removeValue(forKey: key)
+                }
+            }
+        }
+        t.resume()
+        livenessTimer = t
+    }
+
+    @MainActor
+    private func stopLivenessWatch() {
+        livenessTimer?.cancel()
+        livenessTimer = nil
+    }
 }
 
 // MARK: Bonjour delegate + recovery
-
 extension BeamControlServer: NetServiceDelegate {
     public func netServiceDidPublish(_ sender: NetService) {
         bonjourLog.info("Published \(sender.name, privacy: .public)")
@@ -323,10 +382,12 @@ extension BeamControlServer: NetServiceDelegate {
         BeamLog.warn("Bonjour republish in \(Int(delay))s (attempt \(bonjourBackoffAttempt))", tag: "host")
 
         netService?.stop(); netService = nil
+
         let type = BeamConfig.controlService.hasSuffix(".") ? BeamConfig.controlService : BeamConfig.controlService + "."
         let ns = NetService(domain: "local.", type: type, name: name, port: Int32(BeamConfig.controlPort))
         ns.includesPeerToPeer = true
         ns.delegate = self
+
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.netService = ns
             ns.publish()

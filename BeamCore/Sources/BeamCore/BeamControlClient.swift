@@ -11,6 +11,7 @@ import OSLog
 
 private let clientLog = Logger(subsystem: BeamConfig.subsystemViewer, category: "control-client")
 
+@MainActor
 public final class BeamControlClient: ObservableObject {
     public enum Status: Equatable {
         case idle
@@ -28,9 +29,14 @@ public final class BeamControlClient: ObservableObject {
     private var attemptID: Int = 0
     private var handshakeTimeoutTask: Task<Void, Never>?
 
-    // Heartbeat
+    // Heartbeat (app-level)
     private var hbTimer: DispatchSourceTimer?
     private let hbInterval: TimeInterval = 5
+
+    // Liveness diagnostics: if host stops talking for too long, we’ll log it clearly.
+    private var lastRxAt: Date?
+    private var livenessTimer: DispatchSourceTimer?
+    private let livenessGrace: TimeInterval = 15 // if no rx > 15s while "paired", mark as failed
 
     public init() {}
 
@@ -51,12 +57,12 @@ public final class BeamControlClient: ObservableObject {
         let endpoint = host.connectEndpoint
         let hostName = host.name
         let remoteDesc = endpoint.debugDescription
+
         BeamLog.info("conn#\(attemptID) Connecting to \(hostName) @ \(remoteDesc) with code \(code)", tag: "viewer")
 
         let params = BeamTransportParameters.tcpPeerToPeer()
         let conn = NWConnection(to: endpoint, using: params)
         self.connection = conn
-
         self.status = .connecting(hostName: hostName, remote: remoteDesc)
 
         let idForLogs = attemptID
@@ -77,6 +83,7 @@ public final class BeamControlClient: ObservableObject {
                 Task { @MainActor in
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
+                    self.stopLivenessWatch()
                     self.status = .failed(reason: err.localizedDescription)
                     self.connection?.cancel()
                     self.connection = nil
@@ -86,12 +93,21 @@ public final class BeamControlClient: ObservableObject {
                 Task { @MainActor in
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
+                    self.stopLivenessWatch()
                     if case .failed = self.status { /* keep failed */ }
                     else { self.status = .idle }
                 }
             default:
                 BeamLog.debug("conn#\(idForLogs) state=\(String(describing: state)) (path=\(ps))", tag: "viewer")
             }
+        }
+
+        // Extra diagnostics: viability/better-path changes
+        conn.viabilityUpdateHandler = { isViable in
+            BeamLog.debug("conn#\(idForLogs) viable=\(isViable)", tag: "viewer")
+        }
+        conn.betterPathUpdateHandler = { hasBetter in
+            BeamLog.debug("conn#\(idForLogs) betterPath=\(hasBetter)", tag: "viewer")
         }
 
         conn.start(queue: .main)
@@ -101,6 +117,7 @@ public final class BeamControlClient: ObservableObject {
     public func disconnect() {
         handshakeTimeoutTask?.cancel(); handshakeTimeoutTask = nil
         stopHeartbeats()
+        stopLivenessWatch()
         connection?.cancel(); connection = nil
         rxBuffer.removeAll()
         status = .idle
@@ -156,13 +173,16 @@ public final class BeamControlClient: ObservableObject {
                 Task { @MainActor in
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
+                    self.stopLivenessWatch()
                     if case .paired = self.status {
-                        // keep paired UI if host closed intentionally
+                        // Keep "Paired" visible if host intentionally closed;
+                        // status will be overwritten by UI actions if needed.
                     } else if case .failed = self.status {
                         // keep failed
                     } else {
                         self.status = .failed(reason: "Disconnected")
                     }
+                    // Ensure we drop our side too.
                     self.connection?.cancel(); self.connection = nil
                 }
                 BeamLog.warn("conn#\(id) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "viewer")
@@ -181,7 +201,9 @@ public final class BeamControlClient: ObservableObject {
                 if resp.ok, let sid = resp.sessionID {
                     self.status = .paired(session: sid, udpPort: resp.udpPort)
                     BeamLog.info("Paired ✓ session=\(sid)", tag: "viewer")
+                    self.lastRxAt = Date() // reset liveness on successful handshake
                     self.startHeartbeats()
+                    self.startLivenessWatch()
                 } else {
                     let reason = resp.message ?? "Rejected"
                     self.status = .failed(reason: reason)
@@ -193,6 +215,7 @@ public final class BeamControlClient: ObservableObject {
 
         // 2) Heartbeat
         if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
+            lastRxAt = Date()
             BeamLog.debug("hb ✓", tag: "viewer")
             return
         }
@@ -226,5 +249,34 @@ public final class BeamControlClient: ObservableObject {
     private func stopHeartbeats() {
         hbTimer?.cancel()
         hbTimer = nil
+    }
+
+    // MARK: Liveness diagnostics
+
+    @MainActor
+    private func startLivenessWatch() {
+        stopLivenessWatch()
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + livenessGrace, repeating: livenessGrace)
+        t.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard case .paired = self.status else { return }
+            let last = self.lastRxAt ?? Date()
+            let gap = Date().timeIntervalSince(last)
+            if gap > self.livenessGrace {
+                // Just mark it and log; we’ll still rely on the receiveLoop to learn about actual closure.
+                BeamLog.warn("LIVENESS: no host traffic for \(Int(gap))s; marking failed (will close)", tag: "viewer")
+                self.status = .failed(reason: "Lost contact with host")
+                self.connection?.cancel()
+            }
+        }
+        t.resume()
+        livenessTimer = t
+    }
+
+    @MainActor
+    private func stopLivenessWatch() {
+        livenessTimer?.cancel()
+        livenessTimer = nil
     }
 }
