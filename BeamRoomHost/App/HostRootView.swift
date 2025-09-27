@@ -4,8 +4,8 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  Publishes the control service, shows pending pair requests,
-//  Broadcast picker, and a Test Stream (M3) toggle.
+//  Test Stream UI removed. Host now focuses on advertising + Broadcast picker.
+//  MediaUDP still runs (for UDP port + peer bridging), but there’s no fake-frame button.
 //
 
 import SwiftUI
@@ -22,25 +22,21 @@ final class HostViewModel: ObservableObject {
     @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
     @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
 
-    // Mirror the server’s published state so SwiftUI actually updates.
+    // Mirror server’s state so SwiftUI updates.
     @Published var sessions: [BeamControlServer.ActiveSession] = []
     @Published var pendingPairs: [BeamControlServer.PendingPair] = []
     @Published var udpPeer: String? = nil
-    @Published var isStreaming: Bool = false
 
     let server: BeamControlServer
-
     private var pollTimer: DispatchSourceTimer?
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
-
         // Bridge server → view model
         server.$sessions.receive(on: RunLoop.main).sink { [weak self] in self?.sessions = $0 }.store(in: &cancellables)
         server.$pendingPairs.receive(on: RunLoop.main).sink { [weak self] in self?.pendingPairs = $0 }.store(in: &cancellables)
         server.$udpPeer.receive(on: RunLoop.main).sink { [weak self] in self?.udpPeer = $0 }.store(in: &cancellables)
-        server.$isStreaming.receive(on: RunLoop.main).sink { [weak self] in self?.isStreaming = $0 }.store(in: &cancellables)
     }
 
     func toggle() {
@@ -61,11 +57,8 @@ final class HostViewModel: ObservableObject {
     }
 
     func setAutoAccept(_ v: Bool) { server.autoAccept = v }
-    func accept(_ id: UUID) { server.accept(id) }
-    func decline(_ id: UUID) { server.decline(id) }
-
-    func startTestStream() { server.startTestStream() }
-    func stopTestStream()  { server.stopTestStream() }
+    func accept(_ pendingID: UUID) { server.accept(pendingID) }
+    func decline(_ pendingID: UUID) { server.decline(pendingID) }
 
     // MARK: Broadcast poll (App Group flag → UI)
     private func startBroadcastPoll() {
@@ -73,17 +66,17 @@ final class HostViewModel: ObservableObject {
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 1, repeating: 1)
         t.setEventHandler { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             let on = BeamConfig.isBroadcastOn()
-            Task { @MainActor in
-                if on != self.broadcastOn { self.broadcastOn = on }
-            }
+            Task { @MainActor in if on != self.broadcastOn { self.broadcastOn = on } }
         }
         t.resume()
         pollTimer = t
     }
 
-    private func stopBroadcastPoll() { pollTimer?.cancel(); pollTimer = nil }
+    private func stopBroadcastPoll() {
+        pollTimer?.cancel(); pollTimer = nil
+    }
 }
 
 struct HostRootView: View {
@@ -108,11 +101,8 @@ struct HostRootView: View {
                 Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
                     .onChange(of: model.autoAccept) { _, new in model.setAutoAccept(new) }
 
-                // Broadcast controls
+                // Broadcast controls (ReplayKit picker)
                 broadcastSection
-
-                // Test stream controls (M3)
-                testStreamSection
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -190,7 +180,6 @@ struct HostRootView: View {
     }
 
     // MARK: Broadcast UI
-
     @ViewBuilder private var broadcastSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -201,29 +190,9 @@ struct HostRootView: View {
                 Spacer()
             }
             BroadcastPicker().frame(height: 44)
-        }
-    }
-
-    // MARK: Test stream UI (M3)
-
-    @ViewBuilder private var testStreamSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("Test Stream (Fake Frames)", systemImage: "display")
-                    .font(.headline)
-                Spacer()
-                if model.isStreaming {
-                    Button("Stop") { model.stopTestStream() }.buttonStyle(.bordered)
-                } else {
-                    Button("Start") { model.startTestStream() }.buttonStyle(.borderedProminent)
-                        .disabled(!model.started)
-                }
-            }
             HStack(spacing: 6) {
-                Text("UDP peer:")
-                    .foregroundStyle(.secondary)
-                Text(model.udpPeer ?? "none")
-                    .font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+                Text("Active Viewer UDP peer:").foregroundStyle(.secondary)
+                Text(model.udpPeer ?? "none").font(.caption).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
     }
@@ -238,6 +207,7 @@ private struct BroadcastPicker: UIViewRepresentable {
         return v
     }
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+
     private static func findUploadExtensionBundleID() -> String? {
         guard let plugins = Bundle.main.builtInPlugInsURL else { return nil }
         let fm = FileManager.default

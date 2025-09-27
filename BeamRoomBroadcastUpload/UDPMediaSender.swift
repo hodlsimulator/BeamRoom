@@ -4,173 +4,212 @@
 //
 //  Created by . . on 9/27/25.
 //
-//  Broadcast Upload extension peer + UDP sender.
-//  Reads the Host-published active peer (ip:port) from the App Group and
-//  sends M4 H.264 datagrams (via BeamCore.H264Wire) to that peer.
-//  If there is no fresh peer (seen within 6 seconds), we don’t send.
+//  Broadcast Upload extension → sends AVCC H.264 over UDP directly to the
+//  active Viewer peer (ip:port) that the Host publishes into the App Group.
 //
 
 import Foundation
 import Network
-import BeamCore // BeamConfig, H264Wire, Data+BE, BeamLog
+import OSLog
+import BeamCore
 
 actor UDPMediaSender {
 
     static let shared = UDPMediaSender()
 
-    // MARK: - State
+    // MARK: State
     private var conn: NWConnection?
-    private var currentKey: String? // "host:port"
-    private var pollTimer: DispatchSourceTimer?
+    private var currentPeer: (host: String, port: UInt16)?
     private var seq: UInt32 = 0
+    private var observing = false
 
-    // MARK: - Lifecycle
-    func start() {
-        startPeerPolling()
+    private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "udp-send")
+
+    // Conservative payload to avoid IP fragmentation on Wi-Fi.
+    private let maxUDPPayload = 1200
+    private let fixedHeaderBytes = 20 // H264Wire fixed BE header size
+
+    // MARK: Lifecycle
+    func start() async {
+        if !observing {
+            startObservingPeerChanges()
+            observing = true
+        }
+        await reconnectIfNeeded(reason: "start")
     }
 
-    func stop() {
-        pollTimer?.cancel(); pollTimer = nil
-        conn?.cancel(); conn = nil
-        currentKey = nil
-        seq = 0
+    func stop() async {
+        stopObservingPeerChanges()
+        observing = false
+        await disconnect()
     }
 
-    // MARK: - Sending (M4 wire)
-    /// Build BMRV datagrams from raw AVCC and send them. Safe (Data + scalars only).
-    func sendAVCC(width: Int,
-                  height: Int,
-                  avcc: Data,
-                  paramSets: H264Wire.ParamSets?,
-                  isKeyframe: Bool,
-                  mtu: Int = 1200) {
-        guard let c = conn, !avcc.isEmpty else { return }
+    // MARK: Sending
+    func sendAVCC(width: Int, height: Int, avcc: Data, paramSets: H264Wire.ParamSets?, isKeyframe: Bool) async {
+        guard await ensureConnection() else { return }
 
-        // Flags + optional config blob
+        // Param-set blob for keyframes (SPS/PPS)
+        var cfg = Data()
         var flags = H264Wire.Flags()
         if isKeyframe { flags.insert(.keyframe) }
-        let cfg = (paramSets != nil) ? H264Wire.encodeParamSets(paramSets!) : Data()
-        if !cfg.isEmpty { flags.insert(.hasParamSet) }
+        if isKeyframe, let ps = paramSets {
+            cfg = H264Wire.encodeParamSets(ps)
+            if !cfg.isEmpty { flags.insert(.hasParamSet) }
+        }
 
-        let fixed = H264Wire.fixedHeaderBytes
-        let firstBudget = mtu - fixed - cfg.count
-        let restBudget  = mtu - fixed
-        guard firstBudget > 0 && restBudget > 0 else { return }
+        // Split the AVCC data into parts that fit within our UDP budget
+        let max0 = maxUDPPayload - fixedHeaderBytes - (cfg.isEmpty ? 0 : cfg.count)
+        let chunk0 = max(0, min(max0, avcc.count))
+        let remaining = avcc.count - chunk0
+        let perPart = maxUDPPayload - fixedHeaderBytes
+        let extraParts = (remaining > 0) ? Int(ceil(Double(remaining) / Double(perPart))) : 0
+        let partCount = 1 + extraParts
 
-        let total = avcc.count
-        var parts = 1
-        if total > firstBudget {
-            let remain = total - firstBudget
-            let extra = (remain + (restBudget - 1)) / restBudget
-            parts = 1 + max(0, extra)
+        // Part 0
+        do {
+            var h = H264Wire.Header(
+                seq: seq,
+                partIndex: 0,
+                partCount: UInt16(partCount),
+                flags: flags,
+                width: UInt16(max(0, min(width, Int(UInt16.max)))),
+                height: UInt16(max(0, min(height, Int(UInt16.max)))),
+                configBytes: UInt16(cfg.count)
+            )
+            var pkt = encodeHeaderBE(h)
+            if !cfg.isEmpty { pkt.append(cfg) }
+            if chunk0 > 0 { pkt.append(avcc.prefix(chunk0)) }
+            try await sendPacket(pkt)
+        } catch {
+            log.error("send part0 failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+
+        // Remaining parts
+        var sent = chunk0
+        var idx: UInt16 = 1
+        while sent < avcc.count {
+            let n = min(perPart, avcc.count - sent)
+            var h = H264Wire.Header(
+                seq: seq,
+                partIndex: idx,
+                partCount: UInt16(partCount),
+                flags: flags,
+                width: UInt16(max(0, min(width, Int(UInt16.max)))),
+                height: UInt16(max(0, min(height, Int(UInt16.max)))),
+                configBytes: 0
+            )
+            var pkt = encodeHeaderBE(h)
+            pkt.append(avcc.subdata(in: sent..<(sent + n)))
+            do {
+                try await sendPacket(pkt)
+            } catch {
+                log.error("send part \(idx) failed: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            sent += n
+            idx &+= 1
         }
 
         seq &+= 1
-        let w16 = UInt16(clamping: width)
-        let h16 = UInt16(clamping: height)
-
-        var offset = 0
-        for idx in 0..<parts {
-            let carryCfg = (idx == 0 && !cfg.isEmpty)
-            let budget = carryCfg ? firstBudget : restBudget
-            let take = min(budget, total - offset)
-            let body = avcc.subdata(in: offset..<(offset + take))
-            offset += take
-
-            let header = H264Wire.Header(
-                seq: seq,
-                partIndex: UInt16(idx),
-                partCount: UInt16(parts),
-                flags: flags,
-                width: w16,
-                height: h16,
-                configBytes: UInt16(carryCfg ? cfg.count : 0)
-            )
-
-            var packet = makeHeaderBE(header)
-            if carryCfg { packet.append(cfg) }
-            packet.append(body)
-
-            c.send(content: packet, completion: .contentProcessed { _ in })
-        }
     }
 
-    // MARK: - Peer tracking (Host → Extension via BeamConfig)
-    private func startPeerPolling() {
-        pollTimer?.cancel()
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now(), repeating: 1.0)
-        t.setEventHandler { [weak self] in
-            guard let self else { return }
-            Task { await self.refreshPeer() }
+    // MARK: Internals
+
+    private func ensureConnection() async -> Bool {
+        if conn == nil {
+            await reconnectIfNeeded(reason: "no-conn")
         }
-        t.resume()
-        pollTimer = t
+        return conn != nil
     }
 
-    private func refreshPeer() {
-        guard let peer = BeamConfig.getMediaPeer() else {
-            if conn != nil {
-                BeamLog.info("Sender: clearing peer", tag: "host")
-                conn?.cancel(); conn = nil; currentKey = nil
-            }
-            return
-        }
+    private func reconnectIfNeeded(reason: String) async {
+        let peer = BeamConfig.getMediaPeer()
+        if peer == nil { return }
+        if let cur = currentPeer, cur.host == peer!.host && cur.port == peer!.port { return }
+        currentPeer = peer
+        await connect(to: peer!)
+        log.notice("Peer changed → \(peer!.host, privacy: .public):\(peer!.port) (\(reason, privacy: .public))")
+    }
 
-        let key = "\(peer.host):\(peer.port)"
-        if key == currentKey, conn != nil { return }
+    private func connect(to peer: (host: String, port: UInt16)) async {
+        await disconnect()
 
-        // Reconnect to new peer
-        conn?.cancel(); conn = nil
-        currentKey = key
-
-        guard let nwPort = NWEndpoint.Port(rawValue: peer.port) else {
-            currentKey = nil
-            return
-        }
-
+        guard let nwPort = NWEndpoint.Port(rawValue: peer.port) else { return }
+        let host = NWEndpoint.Host(peer.host)
         let params = NWParameters.udp
         params.requiredInterfaceType = .wifi
         params.includePeerToPeer = false
 
-        let c = NWConnection(host: NWEndpoint.Host(peer.host), port: nwPort, using: params)
-        c.stateUpdateHandler = { [weak self] (state: NWConnection.State) in
+        let c = NWConnection(host: host, port: nwPort, using: params)
+        conn = c
+
+        c.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .ready:
-                BeamLog.info("Sender: UDP ready → \(key)", tag: "host")
-                // Optional hello so Host logs first datagram
-                c.send(content: Data([0x42,0x52,0x48,0x49,0x21]), completion: .contentProcessed { _ in })
+                self.log.notice("UDP ready → \(peer.host, privacy: .public):\(peer.port)")
             case .failed(let err):
-                BeamLog.error("Sender failed: \(err.localizedDescription)", tag: "host")
+                self.log.error("UDP failed: \(err.localizedDescription, privacy: .public)")
                 Task { await self.disconnect() }
             case .cancelled:
+                self.log.notice("UDP cancelled")
                 Task { await self.disconnect() }
             default:
                 break
             }
         }
         c.start(queue: .main)
-        conn = c
     }
 
-    private func disconnect() {
-        conn?.cancel(); conn = nil
-        currentKey = nil
+    private func disconnect() async {
+        conn?.cancel()
+        conn = nil
     }
 
-    // MARK: - Helpers
-    /// Build the 20-byte big-endian BMRV header.
-    private func makeHeaderBE(_ h: H264Wire.Header) -> Data {
-        var out = Data(capacity: H264Wire.fixedHeaderBytes)
-        out.appendBE(H264Wire.magic)           // u32 'BMRV'
-        out.appendBE(h.seq)                    // u32 seq
-        out.appendBE(h.partIndex)              // u16 partIndex
-        out.appendBE(h.partCount)              // u16 partCount
-        out.appendBE(h.flags.rawValue)         // u16 flags
-        out.appendBE(h.width)                  // u16 width
-        out.appendBE(h.height)                 // u16 height
-        out.appendBE(h.configBytes)            // u16 configBytes (only in part 0 when hasParamSet)
+    private func sendPacket(_ data: Data) async throws {
+        guard let c = conn else { throw NSError(domain: "UDPMediaSender", code: -1) }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            c.send(content: data, completion: .contentProcessed { err in
+                if let e = err { cont.resume(throwing: e) } else { cont.resume() }
+            })
+        }
+    }
+
+    // MARK: Darwin notify for peer changes
+    private func startObservingPeerChanges() {
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let name = CFNotificationName(BeamConfig.mediaPeerDarwinName as CFString)
+        CFNotificationCenterAddObserver(
+            center,
+            Unmanaged.passUnretained(self).toOpaque(),
+            { _, observer, _, _, _ in
+                guard let observer = observer else { return }
+                let me = Unmanaged<UDPMediaSender>.fromOpaque(observer).takeUnretainedValue()
+                Task { await me.reconnectIfNeeded(reason: "darwin") }
+            },
+            name.rawValue,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    private func stopObservingPeerChanges() {
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        CFNotificationCenterRemoveEveryObserver(center, Unmanaged.passUnretained(self).toOpaque())
+    }
+
+    // MARK: Header encode (local to avoid visibility issues)
+    private func encodeHeaderBE(_ h: H264Wire.Header) -> Data {
+        var out = Data(capacity: fixedHeaderBytes)
+        out.appendBE(H264Wire.magic)
+        out.appendBE(h.seq)
+        out.appendBE(h.partIndex)
+        out.appendBE(h.partCount)
+        out.appendBE(h.flags.rawValue)
+        out.appendBE(h.width)
+        out.appendBE(h.height)
+        out.appendBE(h.configBytes)
         return out
     }
 }

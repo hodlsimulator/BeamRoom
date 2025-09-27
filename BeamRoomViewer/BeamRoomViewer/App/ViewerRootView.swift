@@ -4,15 +4,12 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  M1 UI — discovery + pairing; M3 preview: receives fake frames over UDP.
-//
 
 import SwiftUI
 import Combine
 import Network
 import UIKit
 import BeamCore
-
 #if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
 #endif
@@ -37,18 +34,14 @@ final class ViewerViewModel: ObservableObject {
             try browser.start()
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if self.browser.hosts.isEmpty {
-                    self.showPermHint = true
-                }
+                if self.browser.hosts.isEmpty { self.showPermHint = true }
             }
         } catch {
             BeamLog.error("Discovery start error: \(error.localizedDescription)", tag: "viewer")
         }
     }
 
-    func stopDiscovery() {
-        browser.stop()
-    }
+    func stopDiscovery() { browser.stop() }
 
     // Don’t connect here — just open the sheet with a fresh code
     func pick(_ host: DiscoveredHost) {
@@ -62,8 +55,7 @@ final class ViewerViewModel: ObservableObject {
     func pair() {
         guard let host = selectedHost else { return }
         switch client.status {
-        case .idle, .failed:
-            client.connect(to: host, code: code)
+        case .idle, .failed: client.connect(to: host, code: code)
         default:
             BeamLog.warn("Pair tap ignored; client.status=\(String(describing: client.status))", tag: "viewer")
         }
@@ -82,33 +74,25 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // MARK: M3 preview bootstrap (fixed)
+    // Kick UDP once we know the udpPort
     func maybeStartMedia() {
         guard case .paired(_, let maybePort) = client.status, let udpPort = maybePort else { return }
         guard let sel = selectedHost else { return }
 
-        // Re-acquire the freshest copy of this host from the browser (the one with resolved IPv4)
-        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
-
         // 1) Prefer resolved IPv4 endpoint from the browser
+        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
         if let pref = updated.preferredEndpoint, case let .hostPort(host: h, port: _) = pref {
-            media.connect(toHost: h, port: udpPort)
-            return
+            media.connect(toHost: h, port: udpPort); return
         }
 
-        // 2) Fall back to the *connected* control link’s resolved remote host
-        if let h = client.udpHostCandidate() {
-            media.connect(toHost: h, port: udpPort)
-            return
-        }
+        // 2) Fall back to the control link’s resolved host
+        if let h = client.udpHostCandidate() { media.connect(toHost: h, port: udpPort); return }
 
-        // 3) Last resort: if the original endpoint was already a host:port
+        // 3) Last resort: original endpoint if it was host:port
         if case let .hostPort(host: h, port: _) = updated.endpoint {
-            media.connect(toHost: h, port: udpPort)
-            return
+            media.connect(toHost: h, port: udpPort); return
         }
 
-        // If we reach here, we still don’t have a host IP to dial for UDP
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
     }
 }
@@ -159,11 +143,9 @@ struct ViewerRootView: View {
                             HStack {
                                 Image(systemName: "dot.radiowaves.left.and.right")
                                 Text(host.name)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.9)
+                                    .lineLimit(1).minimumScaleFactor(0.9)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.secondary)
+                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -171,10 +153,10 @@ struct ViewerRootView: View {
                     .frame(maxHeight: 320)
                 }
 
-                // Tiny always-on preview if we’re receiving frames
+                // Always-on preview if receiving frames
                 if let cg = model.media.lastImage {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Preview (Test Stream)").font(.headline)
+                        Text("Preview").font(.headline)
                         Image(uiImage: UIImage(cgImage: cg))
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -196,10 +178,8 @@ struct ViewerRootView: View {
             .navigationTitle("Viewer")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
-                    }
-                    .lineLimit(1)
+                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
+                        .lineLimit(1)
                 }
             }
             .task { model.startDiscovery() }
@@ -244,7 +224,8 @@ private extension ViewerRootView {
                         Text("Wi-Fi Aware not available.")
                         Button("Close") { model.showAwareSheet = false }
                             .lineLimit(1).minimumScaleFactor(0.9)
-                    }.padding()
+                    }
+                    .padding()
                 }
             )
         } else {
@@ -252,24 +233,24 @@ private extension ViewerRootView {
                 Text("Wi-Fi Aware service not available.")
                 Button("Close") { model.showAwareSheet = false }
                     .lineLimit(1).minimumScaleFactor(0.9)
-            }.padding()
+            }
+            .padding()
         }
         #else
         VStack(spacing: 12) {
             Text("Wi-Fi Aware UI isn’t available on this build configuration.")
             Button("Close") { model.showAwareSheet = false }
                 .lineLimit(1).minimumScaleFactor(0.9)
-        }.padding()
+        }
+        .padding()
         #endif
     }
 }
 
 // MARK: - Pair Sheet
-
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
     @State private var firedSuccessHaptic = false
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -278,10 +259,8 @@ private struct PairSheet: View {
                     Text(host.name)
                         .font(.title3).bold()
                         .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+                        .lineLimit(2).minimumScaleFactor(0.8)
                 }
-
                 Text("Your code").font(.caption).foregroundStyle(.secondary)
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
@@ -323,7 +302,7 @@ private struct PairSheet: View {
                                         model.media.stats.drops))
                                 .font(.caption).foregroundStyle(.secondary)
                         } else {
-                            Text("Waiting for test frames…")
+                            Text("Waiting for video…")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -334,11 +313,9 @@ private struct PairSheet: View {
                 }
 
                 Spacer()
-
                 HStack {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
-
                     if case .paired = model.client.status {
                         Button("Done") { model.showPairSheet = false }
                             .buttonStyle(.borderedProminent)
@@ -358,7 +335,6 @@ private struct PairSheet: View {
                     let gen = UINotificationFeedbackGenerator()
                     gen.notificationOccurred(.success)
                 }
-                // Kick UDP hello when we learn the udpPort.
                 if case .paired = new { model.maybeStartMedia() }
             }
             .onAppear { model.maybeStartMedia() }
@@ -366,6 +342,4 @@ private struct PairSheet: View {
     }
 }
 
-#Preview {
-    ViewerRootView()
-}
+#Preview { ViewerRootView() }
