@@ -12,7 +12,6 @@ import Combine
 import Network
 import UIKit
 import BeamCore
-
 #if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
 #endif
@@ -60,7 +59,6 @@ final class ViewerViewModel: ObservableObject {
     // Connect when the user taps “Pair” in the sheet
     func pair() {
         guard let host = selectedHost else { return }
-        // Debounce: only allow from idle/failed
         switch client.status {
         case .idle, .failed:
             client.connect(to: host, code: code)
@@ -72,15 +70,6 @@ final class ViewerViewModel: ObservableObject {
     func cancelPairing() {
         client.disconnect()
         showPairSheet = false
-    }
-
-    var canTapPair: Bool {
-        switch client.status {
-        case .idle, .failed:
-            return true
-        default:
-            return false
-        }
     }
 }
 
@@ -159,8 +148,13 @@ struct ViewerRootView: View {
             }
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
-            .sheet(isPresented: $model.showPairSheet) { PairSheet(model: model) }
-            .sheet(isPresented: $model.showAwareSheet) { awarePickSheet() }
+            .sheet(isPresented: $model.showPairSheet) {
+                // IMPORTANT: observe the client directly so the sheet reacts to state changes.
+                PairSheet(model: model, client: model.client)
+            }
+            .sheet(isPresented: $model.showAwareSheet) {
+                awarePickSheet()
+            }
             .sheet(isPresented: $showLogs) { BeamLogView() }
         }
     }
@@ -227,8 +221,11 @@ private extension ViewerRootView {
     }
 }
 
+// MARK: - Pair Sheet (observes the client directly)
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
+    @ObservedObject var client: BeamControlClient
+
     @State private var firedSuccessHaptic = false
 
     var body: some View {
@@ -248,7 +245,7 @@ private struct PairSheet: View {
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .monospacedDigit()
 
-                switch model.client.status {
+                switch client.status {
                 case .idle:
                     Text("Ready to pair").foregroundStyle(.secondary)
 
@@ -265,12 +262,9 @@ private struct PairSheet: View {
                         .foregroundStyle(.green)
                     Text("Session: \(sid.uuidString)")
                         .font(.footnote).monospaced().foregroundStyle(.secondary)
-
-                    // M2: show broadcast + udp
-                    Label(model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
-                          systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
-                        .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
-
+                    Label(client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
+                          systemImage: client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
+                        .foregroundStyle(client.broadcastOn ? .green : .secondary)
                     if let u = udp {
                         Text("Media UDP port: \(u)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -287,26 +281,33 @@ private struct PairSheet: View {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
 
-                    if case .paired = model.client.status {
+                    if case .paired = client.status {
                         Button("Done") { model.showPairSheet = false }
                             .buttonStyle(.borderedProminent)
                     } else {
                         Button("Pair") { model.pair() }
                             .buttonStyle(.borderedProminent)
-                            .disabled(!model.canTapPair)
+                            .disabled(!canTapPair(client.status))
                     }
                 }
             }
             .padding()
             .navigationTitle("Pair")
             .presentationDetents([.medium])
-            .onChange(of: model.client.status) { _, new in
+            .onChange(of: client.status) { _, new in
                 if case .paired = new, !firedSuccessHaptic {
                     firedSuccessHaptic = true
                     let gen = UINotificationFeedbackGenerator()
                     gen.notificationOccurred(.success)
                 }
             }
+        }
+    }
+
+    private func canTapPair(_ status: BeamControlClient.Status) -> Bool {
+        switch status {
+        case .idle, .failed: return true
+        default: return false
         }
     }
 }

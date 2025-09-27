@@ -4,6 +4,8 @@
 //
 //  Created by . . on 9/22/25.
 //
+// Viewer-side TCP control client
+//
 
 import Foundation
 import Network
@@ -27,10 +29,9 @@ public final class BeamControlClient: ObservableObject {
 
     private var connection: NWConnection?
     private var rxBuffer = Data()
-
     private var attemptSeq: Int = 0
     private var attemptID: Int = 0
-    private var handshakeTimeoutTask: Task<Void, Never>?   // ← fix: add generic parameters
+    private var handshakeTimeoutTask: Task<Void, Never>?   // typed
 
     // Heartbeat (app-level)
     private var hbTimer: DispatchSourceTimer?
@@ -53,8 +54,7 @@ public final class BeamControlClient: ObservableObject {
     public func connect(to host: DiscoveredHost, code: String) {
         // Debounce: ignore while connecting/waiting/paired
         switch status {
-        case .idle, .failed:
-            break
+        case .idle, .failed: break
         default:
             BeamLog.warn("connect() ignored; status=\(String(describing: status))", tag: "viewer")
             return
@@ -72,7 +72,7 @@ public final class BeamControlClient: ObservableObject {
 
         BeamLog.info("conn#\(attemptID) Connecting to \(hostName) @ \(remoteDesc) with code \(code)", tag: "viewer")
 
-        // ⬅︎ Force infra Wi-Fi for the control link
+        // Force infra Wi-Fi for the control link
         let params = BeamTransportParameters.tcpInfraWiFi()
         let conn = NWConnection(to: endpoint, using: params)
         self.connection = conn
@@ -91,6 +91,7 @@ public final class BeamControlClient: ObservableObject {
                     self.sendHandshake(code: code)
                     self.receiveLoop()
                 }
+
             case .failed(let err):
                 BeamLog.error("conn#\(idForLogs) failed: \(err.localizedDescription) (path=\(ps))", tag: "viewer")
                 Task { @MainActor in
@@ -101,18 +102,17 @@ public final class BeamControlClient: ObservableObject {
                     self.connection?.cancel()
                     self.connection = nil
                 }
+
             case .cancelled:
                 BeamLog.warn("conn#\(idForLogs) cancelled (path=\(ps))", tag: "viewer")
                 Task { @MainActor in
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
                     self.stopLivenessWatch()
-                    if case .failed = self.status {
-                        /* keep failed */
-                    } else {
-                        self.status = .idle
-                    }
+                    if case .failed = self.status { /* keep failed */ }
+                    else { self.status = .idle }
                 }
+
             default:
                 BeamLog.debug("conn#\(idForLogs) state=\(String(describing: state)) (path=\(ps))", tag: "viewer")
             }
@@ -148,7 +148,6 @@ public final class BeamControlClient: ObservableObject {
     @MainActor
     private func sendHandshake(code: String) {
         guard let conn = connection else { return }
-
         let req = HandshakeRequest(role: .viewer, code: code)
         do {
             let bytes = try Frame.encodeLine(req)
@@ -160,8 +159,6 @@ public final class BeamControlClient: ObservableObject {
 
             handshakeTimeoutTask?.cancel()
             handshakeTimeoutTask = Task { [weak self] in
-                // If your toolchain warns about nanoseconds:, swap to:
-                // try? await Task.sleep(for: .seconds(8))
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 await MainActor.run {
                     guard let self else { return }
@@ -180,7 +177,6 @@ public final class BeamControlClient: ObservableObject {
     private func receiveLoop() {
         guard let conn = connection else { return }
         let id = attemptID
-
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isEOF, error in
             guard let self else { return }
 

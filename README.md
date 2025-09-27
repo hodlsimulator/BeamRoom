@@ -1,6 +1,8 @@
 # BeamRoom (iOS 26)
 
-BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPad mirrors its screen to nearby **Viewers** using **Wi-Fi Aware** + **Network.framework**. Capture uses **ReplayKit** (Broadcast Upload Extension). Video is **H.264** (VideoToolbox). No Wi-Fi, no internet, no accounts, no servers.
+BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPad mirrors its screen to nearby **Viewers** using **Wi-Fi Aware** + **Network.framework**. Capture uses **ReplayKit** (Broadcast Upload Extension). Video is **H.264** (VideoToolbox). No internet, no accounts, no servers.
+
+> Current status (27 Sep 2025): **M1 (pairing) is working** end-to-end with heartbeats and session IDs. For now the control link runs over **infrastructure Wi-Fi** (same network) while we keep Aware for discovery; pure P2P is planned.
 
 ---
 
@@ -35,12 +37,37 @@ BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPa
 ## Local network privacy
 - Host and Viewer list the Bonjour service types and include a Local Network Usage description string in `Info.plist`.
 
+Example (shape matters; keep `WiFiAwareServices` as a *dictionary* of dictionaries):
+
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_beamroom._udp</string>
+      <string>_beamctl._tcp</string>
+    </array>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>BeamRoom uses the local network to discover and connect to nearby devices for screen sharing.</string>
+    <key>WiFiAwareServices</key>
+    <dict>
+      <key>_beamctl._tcp</key>
+      <dict>
+        <key>Publishable</key><true/>
+        <key>Subscribable</key><true/>
+      </dict>
+      <key>_beamroom._udp</key>
+      <dict>
+        <key>Publishable</key><true/>
+        <key>Subscribable</key><true/>
+      </dict>
+    </dict>
+
+*(On Viewer, set `Publishable` to false and keep `Subscribable` true; the Host publishes both.)*
+
 ---
 
-## Build & Run (M0)
+## Build & Run (M1)
 
 1. **Open the workspace**  
-   Open `BeamRoom.xcworkspace` (not the individual `.xcodeproj`). You should see both Host and Viewer.
+   Open `BeamRoom.xcworkspace` (not the individual `.xcodeproj`). You should see Host, Viewer and the Upload extension.
 
 2. **Set signing + deployment**  
    In **BeamRoomHost**, **BeamRoomViewer**, and **BeamRoomBroadcastUpload**:
@@ -54,13 +81,54 @@ BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPa
    - **Broadcast Upload** → **App Groups** `group.com.conornolan.beamroom` (no Wi-Fi Aware).
 
 4. **Run Host**  
-   Build and run **BeamRoomHost** on a device: it launches a simple screen.
+   Build and run **BeamRoomHost** on a device, then tap **Publish**. You’ll see:
+   - “Advertising `<Device Name>` on `_beamctl._tcp`”
+   - “Media UDP ready on port ####”
+   - A **Broadcast** section with a system **Start Broadcast** button (picker auto-detects the bundled Upload extension).
 
 5. **Run Viewer**  
-   Build and run **BeamRoomViewer** on another device (or the same device via a second run): it launches a simple screen.
+   Build and run **BeamRoomViewer** on another device (or the same device via a second run). You’ll see:
+   - A live list of discovered Hosts.
+   - A **Find & Pair Host (Wi-Fi Aware)** button (uses DeviceDiscoveryUI when available).
 
-6. **Extension status**  
-   The Broadcast Upload Extension compiles with the app bundle. You’ll wire it into the UI at **M2**.
+6. **Pair**  
+   Tap the Host in the list → the Viewer shows a **4-digit code**.  
+   - With **Auto-accept** on (Host), pairing is immediate (for testing).  
+   - Otherwise, the Host gets a **Pair Requests** row to **Accept**/**Decline**.
+
+7. **Result**  
+   The Viewer sheet flips to **Paired ✓**, showing:
+   - `Session: <UUID>`
+   - `Broadcast: On/Off` (live-pushed from Host)
+   - `Media UDP port: ####` (announced by Host)
+
+> For M1, the control link uses infra **Wi-Fi** (same SSID), not AWDL. Discovery runs via Bonjour + Aware. P2P control is planned.
+
+---
+
+## Repo layout (short)
+
+    BeamCore/
+      Sources/BeamCore/
+        AwareSupport.swift          # Wi-Fi Aware helpers
+        BeamBrowser.swift           # Viewer discovery (NWBrowser + NetServiceBrowser)
+        BeamControlServer.swift     # Host TCP control server + Bonjour publish + UDP port announce
+        BeamControlClient.swift     # Viewer TCP control client + heartbeats
+        BeamMessages.swift          # HandshakeRequest/Response, Heartbeat, MediaParams
+        BroadcastStatus.swift       # { "on": Bool }
+        BeamTransportParameters.swift
+        BeamConfig.swift            # Service names, control port (52345), App Group keys
+        Logging.swift, BeamLogView.swift
+        BeamCore.swift              # Version banner (`BeamCore.hello()`)
+
+    BeamRoomHost/
+      App/HostRootView.swift        # Publish/Stop, Auto-accept, Pair Requests, Broadcast picker
+
+    BeamRoomViewer/
+      App/ViewerRootView.swift      # Discovery list, Pairing sheet, status
+
+    BeamRoomBroadcastUpload/
+      SampleHandler.swift           # Toggles “broadcast on/off” flag (M2 plumbing)
 
 ---
 
@@ -114,6 +182,38 @@ BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPa
 
 ---
 
+## Control protocol (M1)
+
+**Transport**
+- **TCP** control: Host listens on **52345** (`NWListener`, infra Wi-Fi only).  
+- **UDP** media: Host opens an ephemeral UDP port and announces it to the Viewer.
+
+**Framing:** newline-delimited JSON (one JSON object per line).
+
+**Messages**
+- **M1 — Handshake**  
+      Viewer → Host:
+        {"app":"beamroom","ver":1,"role":"viewer","code":"1234"}
+      Host → Viewer:
+        {"ok":true,"sessionID":"<uuid>","udpPort":53339}
+      On reject:
+        {"ok":false,"message":"Declined"}
+
+- **Heartbeats (both directions)**  
+      {"hb":1}
+
+- **Broadcast status (Host → Viewer)**  
+      {"on":true}
+
+- **M3 — Media parameters (Host → Viewer)**  
+      {"udpPort":53339}
+
+**Session state**
+- `Idle → Connecting → WaitingAcceptance → Paired`  
+  (Viewer shows status in the Pair sheet; Host lists Pending Pairs if Auto-accept is off.)
+
+---
+
 ## Verify Wi-Fi Aware (copy/paste)
 
 **Host (expect `Publish`,`Subscribe`)**
@@ -136,42 +236,35 @@ BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPa
 
 ## Action plan (M1 → M3)
 
-**M1 — Discovery & pairing (Wi-Fi Aware + control channel)**
+**M1 — Discovery & pairing (Wi-Fi Aware + control channel)** ✅
 - **Services & roles**
   - Host: publish `_beamctl._tcp` (control) and `_beamroom._udp` (media).
   - Viewer: subscribe to both; display nearby Hosts.
 - **Pairing UX**
-  - Show list of discovered Hosts with device name + short **4-digit code**.
-  - Tap Host → Host shows confirm prompt with the same code → accept to pair.
+  - List discovered Hosts with device name + **4-digit code**.
+  - Tap Host → Host shows confirm prompt with the same code → accept to pair (or auto-accept for testing).
 - **Control channel (TCP)**
-  - Define a tiny JSON handshake: `{app:"beamroom", ver:1, role:"viewer", code:"1234"} → {ok:true, sessionID:"…", udpPort:…}`
-  - Heartbeats every ~5s; reconnect on failure.
-- **Session state**
-  - `Idle → Discovering → Pairing → Paired → (M2) Broadcasting → (M3) Streaming`.
+  - Tiny JSON handshake, heartbeats every ~5s, reconnect on failure.
 - **Deliverables**
-  - `BeamCore/Transport.swift`: control/session structs + simple TCP client/server wrappers.
-  - `HostRootView` / `ViewerRootView`: discovery list + pairing UI + status.
+  - Control server/client + Pairing UI + in-app log viewer.
 
-**M2 — Broadcast picker & capture plumbing (no real video yet)**
+**M2 — Broadcast picker & capture plumbing (partial in place)**
 - **Host UI**
-  - Add a `Start Broadcast` button using `RPSystemBroadcastPickerView` with the **Upload extension bundle id**.
-  - Add a `Stop Broadcast` button; reflect extension start/stop via `NotificationCenter` or app-group flag.
+  - System **Start Broadcast** button (`RPSystemBroadcastPickerView`) auto-detects the bundled Upload extension.
+  - **Broadcast On/Off** reflected in Host UI and pushed to Viewers over control.
 - **Upload extension**
-  - `SampleHandler` stubs: on `broadcastStarted(withSetupInfo:)` toggle a shared app-group flag; on `finishBroadcastWithError(_:)` clear it.
-- **Deliverables**
-  - Host shows **“Broadcast: On/Off”** badge; control channel carries `broadcastStatus`.
+  - `SampleHandler` toggles an **App Group flag** on start/finish; no media yet.
+- **Next**
+  - Add a simple “UDP hello” from Viewer to Host immediately after M3 to verify reachability.
 
 **M3 — Fake frames end-to-end (prove transport)**
 - **Transport**
-  - Keep TCP for control; send **synthetic frames** on UDP media channel at ~10–15 fps (e.g. colour bars / moving gradient generated on Host).
-  - Viewer decodes the simple payload (e.g. raw BGRA tiles or a tiny RLE) and displays; measure packet loss/jitter.
+  - Keep TCP for control; send **synthetic frames** on UDP at ~10–15 fps (e.g. colour bars/moving gradient).
+  - Viewer decodes and displays; record loss/jitter.
 - **Metrics**
-  - Basic stats overlay: fps, kbps, loss %, RTT on control.
-- **Deliverables**
-  - `BeamCore/BeamConfig.swift`: knobs for fps/bitrate/mtu.
-  - `ViewerRootView`: frame renderer that can consume the fake payload.
-
-> After M3, swap fake frames for real H.264: create a `VTCompressionSession` in the Upload extension; emit NAL units; Host relays packets over UDP; Viewer uses `VTDecompressionSession` to display. Add ABR later.
+  - Overlay: fps, kbps, loss %, RTT.
+- **Then**
+  - Replace with real H.264 (Upload: `VTCompressionSession`; Viewer: `VTDecompressionSession`), then add ABR.
 
 ---
 
@@ -180,6 +273,8 @@ BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPa
   Fix the entitlement **type** (must be an **array**), refresh/select a **Development** profile that includes Wi-Fi Aware, rebuild to a **device**.
 - **Entitlements missing in app**  
   Check **Build Settings → Code Signing Entitlements** path for both Debug and Release.
+- **Bonjour publish error −72000**  
+  We auto-retry; if persistent, toggle **Publish/Stop** once.
 - **Simulator shows up**  
   Always select a **physical device** for builds that you intend to verify.
 
@@ -187,4 +282,4 @@ BeamRoom is a serverless, high-quality screen-sharing app. A **Host** iPhone/iPa
 
 ## Notes
 - DRM/protected screens render **black by design** (ReplayKit).
-- If the **Wi-Fi Aware** entitlement isn’t visible in Xcode’s Capabilities pane, the provided `.entitlements` files already declare it.
+- For now the control socket is **Wi-Fi only**; AWDL-only control will come once M2/M3 are stable.
