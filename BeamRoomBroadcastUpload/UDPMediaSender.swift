@@ -67,7 +67,7 @@ actor UDPMediaSender {
 
         // Part 0
         do {
-            var h = H264Wire.Header(
+            let h = H264Wire.Header(
                 seq: seq,
                 partIndex: 0,
                 partCount: UInt16(partCount),
@@ -90,7 +90,7 @@ actor UDPMediaSender {
         var idx: UInt16 = 1
         while sent < avcc.count {
             let n = min(perPart, avcc.count - sent)
-            var h = H264Wire.Header(
+            let h = H264Wire.Header(
                 seq: seq,
                 partIndex: idx,
                 partCount: UInt16(partCount),
