@@ -18,6 +18,7 @@ private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "c
 public final class BeamControlServer: NSObject, ObservableObject {
 
     // MARK: View-facing models
+
     public struct PendingPair: Identifiable, Equatable {
         public let id: UUID
         public let connID: Int
@@ -25,6 +26,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         public let remoteDescription: String
         public let requestedAt: Date
     }
+
     public struct ActiveSession: Identifiable, Equatable {
         public let id: UUID
         public let remoteDescription: String
@@ -32,15 +34,18 @@ public final class BeamControlServer: NSObject, ObservableObject {
     }
 
     // MARK: Published state
+
     @Published public private(set) var sessions: [ActiveSession] = []
     @Published public private(set) var pendingPairs: [PendingPair] = []
     @Published public private(set) var udpPeer: String? = nil
     @Published public private(set) var isStreaming: Bool = false
 
     // MARK: Configuration
+
     public var autoAccept: Bool
 
     // MARK: Internals
+
     private var listener: NWListener?
     private var netService: NetService?
     private var netServiceDelegateProxy: NetServiceDelegateProxy?
@@ -67,7 +72,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
         guard listener == nil else { throw BeamError.alreadyRunning }
 
         // TCP listener restricted to infrastructure Wi-Fi
-        let tcp = NWProtocolTCP.Options(); tcp.noDelay = true
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
         let params = NWParameters(tls: nil, tcp: tcp)
         params.includePeerToPeer = false
         params.requiredInterfaceType = .wifi
@@ -82,12 +88,16 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 guard let self else { return }
                 serverLog.debug("Listener state \(String(describing: state))")
                 switch state {
-                case .ready:  BeamLog.info("Host listener state=ready", tag: "host")
-                case .failed(let err): BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
-                default: break
+                case .ready:
+                    BeamLog.info("Host listener state=ready", tag: "host")
+                case .failed(let err):
+                    BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
+                default:
+                    break
                 }
             }
         }
+
         lis.newConnectionHandler = { [weak self] nw in
             Task { @MainActor in
                 guard let self else { return }
@@ -97,6 +107,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 c.start()
             }
         }
+
         lis.start(queue: .main)
 
         // Bonjour publish
@@ -105,16 +116,32 @@ public final class BeamControlServer: NSObject, ObservableObject {
         // UDP media (listener + peer capture)
         let media = MediaUDP(
             onPeerChanged: { [weak self] peer in
-                Task { @MainActor in self?.udpPeer = peer }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.udpPeer = peer
+
+                    // Auto-start/stop the M3 test stream based on peer presence during test mode.
+                    if peer == nil {
+                        if self.isStreaming {
+                            self.stopTestStream()
+                        }
+                    } else {
+                        if BeamConfig.autoAcceptDuringTest && !self.isStreaming {
+                            self.startTestStream()
+                        }
+                    }
+                }
             }
         )
         self.media = media
+
         media.start(
             onReady: { [weak self] udpPort in
                 Task { @MainActor in
                     guard let self else { return }
                     BeamLog.info("Media UDP ready on port \(udpPort)", tag: "host")
                     BeamConfig.setBroadcastUDPPort(udpPort)
+
                     // Push MediaParams to all paired clients
                     for conn in self.connections.values where conn.sessionID != nil {
                         conn.sendMediaParams(udpPort: udpPort)
@@ -130,6 +157,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         // Broadcast poll → inform all clients live
         startBroadcastPoll()
+
         BeamLog.info("Host advertising '\(serviceName)' \(BeamConfig.controlService) on \(BeamConfig.controlPort)", tag: "host")
     }
 
@@ -174,9 +202,9 @@ public final class BeamControlServer: NSObject, ObservableObject {
         isStreaming = false
     }
 
-    // MARK: Internal utilities
+    // MARK: Internal utilities (internal so Conn can call them from another file)
 
-    fileprivate func acceptConnection(_ conn: Conn, code: String) {
+    func acceptConnection(_ conn: Conn, code: String) {
         // Idempotent: if this connection already has a session, just re-ack and push state.
         if let existing = conn.sessionID {
             conn.sendHandshake(ok: true, sessionID: existing, message: "Already paired", udpPort: BeamConfig.getBroadcastUDPPort())
@@ -185,8 +213,12 @@ public final class BeamControlServer: NSObject, ObservableObject {
             return
         }
 
-        if let pid = conn.pendingPairID { removePending(pid) }
-        let sid = UUID(); conn.sessionID = sid
+        if let pid = conn.pendingPairID {
+            removePending(pid)
+        }
+
+        let sid = UUID()
+        conn.sessionID = sid
         sessions.append(ActiveSession(id: sid, remoteDescription: conn.remoteDescription, startedAt: Date()))
 
         // Handshake response with udpPort if known
@@ -196,15 +228,11 @@ public final class BeamControlServer: NSObject, ObservableObject {
         conn.sendBroadcast(hasOn: BeamConfig.isBroadcastOn())
     }
 
-    private func findConn(for pendingID: UUID) -> Conn? {
-        for (_, c) in connections where c.pendingPairID == pendingID { return c }
-        return nil
-    }
-    private func removePending(_ id: UUID) { pendingPairs.removeAll { $0.id == id } }
-
-    fileprivate func queuePending(for conn: Conn, code: String) {
+    func queuePending(for conn: Conn, code: String) {
         // De-dupe: drop any earlier pending row tied to this connection.
-        if let old = conn.pendingPairID { pendingPairs.removeAll { $0.id == old } }
+        if let old = conn.pendingPairID {
+            pendingPairs.removeAll { $0.id == old }
+        }
         let p = PendingPair(
             id: UUID(),
             connID: conn.id,
@@ -217,16 +245,26 @@ public final class BeamControlServer: NSObject, ObservableObject {
         pendingPairs.append(p)
     }
 
-    fileprivate func connectionClosed(_ conn: Conn) {
+    func connectionClosed(_ conn: Conn) {
         if let sid = conn.sessionID { sessions.removeAll { $0.id == sid } }
         if let pid = conn.pendingPairID { pendingPairs.removeAll { $0.id == pid } }
         connections.removeValue(forKey: conn.id)
+    }
+
+    private func findConn(for pendingID: UUID) -> Conn? {
+        for (_, c) in connections where c.pendingPairID == pendingID { return c }
+        return nil
+    }
+
+    private func removePending(_ id: UUID) {
+        pendingPairs.removeAll { $0.id == id }
     }
 
     // MARK: Bonjour
 
     private func publishBonjour(name: String, type: String, port: Int) {
         unpublishBonjour()
+
         let svcType = type.hasSuffix(".") ? type : type + "."
         let ns = NetService(domain: "local.", type: svcType, name: name, port: Int32(port))
         ns.includesPeerToPeer = true
@@ -299,373 +337,21 @@ public final class BeamControlServer: NSObject, ObservableObject {
 private final class NetServiceDelegateProxy: NSObject, NetServiceDelegate {
     typealias PublishedHandler = (NetService) -> Void
     typealias DidNotPublishHandler = (NetService, [String : NSNumber]) -> Void
+
     private let onPublished: PublishedHandler?
     private let onDidNotPublish: DidNotPublishHandler?
+
     init(onPublished: PublishedHandler?, onDidNotPublish: DidNotPublishHandler?) {
         self.onPublished = onPublished
         self.onDidNotPublish = onDidNotPublish
         super.init()
     }
-    func netServiceDidPublish(_ sender: NetService) { onPublished?(sender) }
-    func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) { onDidNotPublish?(sender, errorDict) }
-}
 
-// MARK: - Per-connection wrapper (TCP control)
-
-@MainActor
-private final class Conn {
-    let id: Int
-    let nw: NWConnection
-    weak var server: BeamControlServer?
-    var rxBuffer = Data()
-    var hbTimer: DispatchSourceTimer?
-    var pendingPairID: UUID?
-    var pendingCode: String?
-    var sessionID: UUID?
-
-    var remoteDescription: String { nw.endpoint.debugDescription }
-
-    init(id: Int, nw: NWConnection, server: BeamControlServer) {
-        self.id = id
-        self.nw = nw
-        self.server = server
+    func netServiceDidPublish(_ sender: NetService) {
+        onPublished?(sender)
     }
 
-    func start() {
-        nw.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor in
-                guard let self else { return }
-                let ps = pathSummary(self.nw.currentPath)
-                switch state {
-                case .preparing:
-                    BeamLog.debug("conn#\(self.id) state=preparing path=\(ps)", tag: "host")
-                case .ready:
-                    BeamLog.debug("conn#\(self.id) state=ready path=\(ps)", tag: "host")
-                    BeamLog.info("conn#\(self.id) accepted (remote=\(self.remoteDescription), path=\(ps))", tag: "host")
-                    self.receiveLoop()
-                    self.startHeartbeats()
-                case .failed(let err):
-                    BeamLog.error("conn#\(self.id) failed: \(err.localizedDescription)", tag: "host")
-                    self.close()
-                case .cancelled:
-                    BeamLog.warn("conn#\(self.id) state=cancelled path=-", tag: "host")
-                default: break
-                }
-            }
-        }
-        nw.start(queue: .main)
-    }
-
-    func close() {
-        stopHeartbeats()
-        nw.cancel()
-        server?.connectionClosed(self)
-    }
-
-    private func receiveLoop() {
-        nw.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isEOF, error in
-            Task { @MainActor in
-                guard let self else { return }
-                if let data, !data.isEmpty {
-                    for line in Frame.drainLines(buffer: &self.rxBuffer, incoming: data) {
-                        self.handleLine(line)
-                    }
-                }
-                if isEOF || error != nil {
-                    BeamLog.warn("conn#\(self.id) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
-                    self.close()
-                    return
-                }
-                self.receiveLoop()
-            }
-        }
-    }
-
-    private func handleLine(_ line: Data) {
-        // 1) Handshake (Viewer → Host)
-        if let req = try? JSONDecoder().decode(HandshakeRequest.self, from: line) {
-            // Only accept Viewer role
-            guard req.role.rawValue == "viewer" else {
-                sendHandshake(ok: false, sessionID: nil, message: "Invalid role", udpPort: nil)
-                return
-            }
-            // If already paired, just acknowledge with the existing session
-            if let sid = sessionID {
-                sendHandshake(ok: true, sessionID: sid, message: "Already paired", udpPort: BeamConfig.getBroadcastUDPPort())
-                if let udp = BeamConfig.getBroadcastUDPPort() { sendMediaParams(udpPort: udp) }
-                sendBroadcast(hasOn: BeamConfig.isBroadcastOn())
-                return
-            }
-            // Queue for accept, or auto-accept in test mode
-            if let server, server.autoAccept {
-                BeamLog.info("conn#\(id) AUTO-ACCEPT code \(req.code)", tag: "host")
-                server.acceptConnection(self, code: req.code)
-            } else {
-                BeamLog.info("conn#\(id) handshake code \(req.code) (pending=1)", tag: "host")
-                server?.queuePending(for: self, code: req.code)
-                // Viewer has a timeout; no immediate reply here.
-            }
-            return
-        }
-
-        // 2) Heartbeat (Viewer → Host)
-        if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
-            BeamLog.debug("conn#\(id) hb", tag: "host")
-            return
-        }
-
-        // Unknown frame – ignore (keeps protocol resilient)
-    }
-
-    // MARK: Sending helpers
-
-    func sendHandshake(ok: Bool, sessionID: UUID?, message: String?, udpPort: UInt16?) {
-        let resp = HandshakeResponse(ok: ok, sessionID: sessionID, udpPort: udpPort, message: message)
-        send(resp, note: "response ok=\(ok)")
-    }
-
-    func sendBroadcast(hasOn on: Bool) {
-        let payload = BroadcastStatus(on: on)
-        do {
-            let bytes = try Frame.encodeLine(payload)
-            nw.send(content: bytes, completion: .contentProcessed { _ in
-                BeamLog.debug("conn#\(self.id) sent 13 bytes (broadcast=\(on))", tag: "host")
-            })
-        } catch {
-            BeamLog.error("conn#\(id) send encode fail: \(error.localizedDescription)", tag: "host")
-        }
-    }
-
-    func sendMediaParams(udpPort: UInt16) {
-        send(MediaParams(udpPort: udpPort), note: "mediaParams udp=\(udpPort)")
-    }
-
-    private func send<T: Encodable>(_ payload: T, note: String) {
-        do {
-            let bytes = try Frame.encodeLine(payload)
-            nw.send(content: bytes, completion: .contentProcessed { _ in /* small & frequent; skip log */ })
-            if payload is HandshakeResponse {
-                BeamLog.debug("conn#\(self.id) sent 78 bytes (\(note))", tag: "host")
-            }
-        } catch {
-            BeamLog.error("conn#\(id) send encode fail: \(error.localizedDescription)", tag: "host")
-        }
-    }
-
-    // MARK: Heartbeats
-
-    private func startHeartbeats() {
-        stopHeartbeats()
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 2, repeating: 5)
-        t.setEventHandler { [weak self] in
-            guard let self else { return }
-            do {
-                let bytes = try Frame.encodeLine(Heartbeat())
-                self.nw.send(content: bytes, completion: .contentProcessed { _ in
-                    BeamLog.debug("conn#\(self.id) sent 9 bytes (hb)", tag: "host")
-                })
-            } catch {
-                BeamLog.error("hb encode fail: \(error.localizedDescription)", tag: "host")
-            }
-        }
-        t.resume()
-        hbTimer = t
-    }
-
-    private func stopHeartbeats() {
-        hbTimer?.cancel()
-        hbTimer = nil
-    }
-}
-
-// MARK: - UDP media listener + test frame sender
-// We keep MediaUDP on the main queue only; mark as @unchecked Sendable to appease @Sendable closures.
-private final class MediaUDP: @unchecked Sendable {
-
-    private var listener: NWListener?
-    private var activePeer: NWConnection?
-
-    private var peerDesc: String? { activePeer?.endpoint.debugDescription }
-    private var onPeerChanged: ((String?) -> Void)?
-
-    // Test stream
-    private var streamTimer: DispatchSourceTimer?
-    private var seq: UInt32 = 0
-
-    // IMPORTANT: keep one datagram per frame under ~65 KB:
-    // 160 × 90 × 4 + 12 header = 57,612 bytes (safe).
-    private let w = 160, h = 90
-
-    // Optional debug sampler (summarise throughput)
-    private var bytesInWindow: Int = 0
-    private var windowStart = Date()
-
-    init(onPeerChanged: ((String?) -> Void)? = nil) {
-        self.onPeerChanged = onPeerChanged
-    }
-
-    func start(
-        onReady: @Sendable @escaping (UInt16) -> Void,
-        onError: @Sendable @escaping (Error) -> Void
-    ) {
-        do {
-            let params = NWParameters.udp
-            params.requiredInterfaceType = .wifi
-            params.includePeerToPeer = false
-
-            // Use port-less init; system assigns ephemeral port.
-            let lis = try NWListener(using: params)
-            listener = lis
-
-            lis.stateUpdateHandler = { [weak self] state in
-                switch state {
-                case .ready:
-                    if let p = self?.listener?.port?.rawValue {
-                        onReady(p)
-                    }
-                case .failed(let err):
-                    onError(err)
-                default:
-                    break
-                }
-            }
-
-            // Incoming UDP “connections” represent remote addresses that send us a datagram.
-            lis.newConnectionHandler = { [weak self] conn in
-                self?.installPeer(conn)
-            }
-
-            lis.start(queue: .main)
-        } catch {
-            onError(error)
-        }
-    }
-
-    func stop() {
-        stopTestFrames()
-        activePeer?.cancel(); activePeer = nil
-        listener?.cancel(); listener = nil
-        onPeerChanged?(nil)
-    }
-
-    // MARK: Peer
-
-    private func installPeer(_ conn: NWConnection) {
-        // Replace any existing peer
-        activePeer?.cancel()
-        activePeer = conn
-
-        conn.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                BeamLog.info("UDP peer ready: \(conn.endpoint.debugDescription)", tag: "host")
-                self.onPeerChanged?(conn.endpoint.debugDescription)
-                self.receiveLoop(on: conn) // we don't need payload; just keep it alive
-            case .failed(let err):
-                BeamLog.error("UDP peer failed: \(err.localizedDescription)", tag: "host")
-                self.onPeerChanged?(nil)
-            case .cancelled:
-                BeamLog.warn("UDP peer cancelled", tag: "host")
-                self.onPeerChanged?(nil)
-            default:
-                break
-            }
-        }
-
-        conn.start(queue: .main)
-    }
-
-    private func receiveLoop(on conn: NWConnection) {
-        conn.receiveMessage { [weak self] data, _, _, _ in
-            // Any datagram from the viewer is effectively a “hello”; ignore contents.
-            if let self, let d = data, !d.isEmpty {
-                BeamLog.debug("UDP ← \(d.count) bytes (hello/keepalive)", tag: "host")
-            }
-            self?.receiveLoop(on: conn)
-        }
-    }
-
-    // MARK: Test frames
-
-    func startTestFrames() {
-        stopTestFrames()
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 0.1, repeating: 1.0 / 12.0) // ~12 fps
-        t.setEventHandler { [weak self] in self?.tick() }
-        t.resume()
-        streamTimer = t
-    }
-
-    func stopTestFrames() {
-        streamTimer?.cancel()
-        streamTimer = nil
-    }
-
-    private func tick() {
-        guard let peer = activePeer else { return }
-        seq &+= 1
-        let payload = makeGradientFrame(seq: seq, w: w, h: h)
-
-        // Optional: DEBUG summary once per second; no per-frame spam.
-        bytesInWindow += payload.count
-        let now = Date()
-        if now.timeIntervalSince(windowStart) >= 1.0 {
-            let seconds = now.timeIntervalSince(windowStart)
-            let kbps = Double(bytesInWindow * 8) / seconds / 1000.0
-            BeamLog.debug(String(format: "UDP preview ~ %.1f kbps @ %dx%d", kbps, w, h), tag: "host")
-            windowStart = now
-            bytesInWindow = 0
-        }
-
-        peer.send(content: payload, completion: .contentProcessed { _ in
-            // Intentionally quiet by default.
-            // #if DEBUG
-            // if BeamInAppLog.shared.minLevel == .debug && (self.seq % 60 == 0) {
-            //     BeamLog.debug("UDP → frame seq=\(self.seq) bytes=\(payload.count)", tag: "host")
-            // }
-            // #endif
-        })
-    }
-
-    private func makeGradientFrame(seq: UInt32, w: Int, h: Int) -> Data {
-        var out = Data(capacity: 12 + w*h*4)
-
-        // Header
-        out.appendBE(UInt32(0x424D524D)) // 'BMRM'
-        out.appendBE(seq)
-        out.appendBE(UInt16(w))
-        out.appendBE(UInt16(h))
-
-        // Pixels (BGRA32): simple moving gradient
-        out.reserveCapacity(12 + w*h*4)
-        let t = Double(seq) * 0.08
-        for y in 0..<h {
-            for x in 0..<w {
-                let fx = Double(x) / Double(w)
-                let fy = Double(y) / Double(h)
-                let r = UInt8(clamping: Int((sin(t + fx * .pi * 2) * 0.5 + 0.5) * 255))
-                let g = UInt8(clamping: Int((sin(t * 0.7 + fy * .pi * 2) * 0.5 + 0.5) * 255))
-                let b = UInt8(clamping: Int((sin(t * 1.3 + (fx + fy) * .pi) * 0.5 + 0.5) * 255))
-                out.append(b) // B
-                out.append(g) // G
-                out.append(r) // R
-                out.append(0xFF) // A (premultipliedFirst)
-            }
-        }
-
-        return out
-    }
-}
-
-// Small helpers to append big-endian integers to Data
-private extension Data {
-    mutating func appendBE<T: FixedWidthInteger>(_ v: T) {
-        var be = v.bigEndian
-        Swift.withUnsafeBytes(of: &be) { rawBuf in
-            // Use the global Swift.withUnsafeBytes and append the raw bytes
-            self.append(contentsOf: rawBuf)
-        }
+    func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
+        onDidNotPublish?(sender, errorDict)
     }
 }
