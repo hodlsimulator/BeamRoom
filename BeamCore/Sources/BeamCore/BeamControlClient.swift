@@ -13,6 +13,7 @@ private let clientLog = Logger(subsystem: BeamConfig.subsystemViewer, category: 
 
 @MainActor
 public final class BeamControlClient: ObservableObject {
+
     public enum Status: Equatable {
         case idle
         case connecting(hostName: String, remote: String)
@@ -26,9 +27,10 @@ public final class BeamControlClient: ObservableObject {
 
     private var connection: NWConnection?
     private var rxBuffer = Data()
+
     private var attemptSeq: Int = 0
     private var attemptID: Int = 0
-    private var handshakeTimeoutTask: Task<Void, Never>?
+    private var handshakeTimeoutTask: Task<Void, Never>?   // ← fix: add generic parameters
 
     // Heartbeat (app-level)
     private var hbTimer: DispatchSourceTimer?
@@ -105,8 +107,11 @@ public final class BeamControlClient: ObservableObject {
                     self.handshakeTimeoutTask?.cancel()
                     self.stopHeartbeats()
                     self.stopLivenessWatch()
-                    if case .failed = self.status { /* keep failed */ }
-                    else { self.status = .idle }
+                    if case .failed = self.status {
+                        /* keep failed */
+                    } else {
+                        self.status = .idle
+                    }
                 }
             default:
                 BeamLog.debug("conn#\(idForLogs) state=\(String(describing: state)) (path=\(ps))", tag: "viewer")
@@ -143,6 +148,7 @@ public final class BeamControlClient: ObservableObject {
     @MainActor
     private func sendHandshake(code: String) {
         guard let conn = connection else { return }
+
         let req = HandshakeRequest(role: .viewer, code: code)
         do {
             let bytes = try Frame.encodeLine(req)
@@ -154,6 +160,8 @@ public final class BeamControlClient: ObservableObject {
 
             handshakeTimeoutTask?.cancel()
             handshakeTimeoutTask = Task { [weak self] in
+                // If your toolchain warns about nanoseconds:, swap to:
+                // try? await Task.sleep(for: .seconds(8))
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 await MainActor.run {
                     guard let self else { return }
@@ -232,7 +240,16 @@ public final class BeamControlClient: ObservableObject {
             return
         }
 
-        // 2) Heartbeat
+        // 2) Media params (M3)
+        if let mp = try? JSONDecoder().decode(MediaParams.self, from: line) {
+            if case .paired(let sid, _) = status {
+                status = .paired(session: sid, udpPort: mp.udpPort)
+                BeamLog.info("Media params: udpPort=\(mp.udpPort)", tag: "viewer")
+            }
+            return
+        }
+
+        // 3) Heartbeat
         if (try? JSONDecoder().decode(Heartbeat.self, from: line)) != nil {
             lastRxAt = Date()
             BeamLog.debug("hb ✓", tag: "viewer")

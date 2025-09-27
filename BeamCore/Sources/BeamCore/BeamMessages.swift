@@ -20,12 +20,12 @@ public enum BeamError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidMessage: return "Invalid message"
-        case .handshakeRejected(let reason): return "Pairing rejected: \(reason)"
-        case .connectionFailed(let reason): return "Connection failed: \(reason)"
-        case .cancelled: return "Cancelled"
-        case .alreadyRunning: return "Already running"
-        case .notRunning: return "Not running"
+        case .invalidMessage:                   return "Invalid message"
+        case .handshakeRejected(let reason):    return "Pairing rejected: \(reason)"
+        case .connectionFailed(let reason):     return "Connection failed: \(reason)"
+        case .cancelled:                        return "Cancelled"
+        case .alreadyRunning:                   return "Already running"
+        case .notRunning:                       return "Not running"
         }
     }
 }
@@ -68,6 +68,12 @@ public struct BroadcastStatus: Codable, Equatable {
     public init(on: Bool) { self.on = on }
 }
 
+/// M3: Media parameters (pushed when available/changed)
+public struct MediaParams: Codable, Equatable {
+    public let udpPort: UInt16
+    public init(udpPort: UInt16) { self.udpPort = udpPort }
+}
+
 // MARK: - Newline-delimited JSON framing
 
 enum Frame {
@@ -100,13 +106,10 @@ enum Frame {
 public struct DiscoveredHost: Identifiable, Hashable {
     public let id = UUID()
     public let name: String
-
     /// Original Bonjour service endpoint (works everywhere).
     public let endpoint: NWEndpoint
-
     /// Preferred infrastructure IPv4 endpoint (set when we resolve addresses).
     public var preferredEndpoint: NWEndpoint?
-
     /// For diagnostics/UI
     public var resolvedIPs: [String] = []
 

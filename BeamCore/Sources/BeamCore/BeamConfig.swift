@@ -17,9 +17,9 @@ public enum BeamConfig {
     public static let controlPort: UInt16 = 52345
 
     // OSLog subsystems (one per target)
-    public static let subsystemHost = "com.conornolan.BeamRoomHost"
+    public static let subsystemHost  = "com.conornolan.BeamRoomHost"
     public static let subsystemViewer = "com.conornolan.BeamRoomViewer"
-    public static let subsystemExt = "com.conornolan.BeamRoomBroadcastUpload"
+    public static let subsystemExt   = "com.conornolan.BeamRoomBroadcastUpload"
 
     // Temporary test switch: auto-accept pairing on Host to prove end-to-end.
     // Set to false to restore manual Accept/Decline.
@@ -29,6 +29,9 @@ public enum BeamConfig {
     public static let appGroup = "group.com.conornolan.beamroom"
     public static let broadcastFlagKey = "br.broadcast.on"
     public static let broadcastDarwinName = "com.conornolan.beamroom.broadcastChanged"
+
+    // M3: UDP port (host’s media sender/listener port)
+    public static let broadcastUDPPortKey = "br.broadcast.udpPort"
 
     @inline(__always)
     public static func isBroadcastOn() -> Bool {
@@ -42,5 +45,23 @@ public enum BeamConfig {
         d.synchronize()
         let name = CFNotificationName(broadcastDarwinName as CFString)
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
+    }
+
+    @inline(__always)
+    public static func getBroadcastUDPPort() -> UInt16? {
+        guard let d = UserDefaults(suiteName: appGroup) else { return nil }
+        let n = d.integer(forKey: broadcastUDPPortKey)
+        return (n > 0 && n <= UInt16.max) ? UInt16(n) : nil
+    }
+
+    @inline(__always)
+    public static func setBroadcastUDPPort(_ port: UInt16?) {
+        guard let d = UserDefaults(suiteName: appGroup) else { return }
+        if let p = port {
+            d.set(Int(p), forKey: broadcastUDPPortKey)
+        } else {
+            d.removeObject(forKey: broadcastUDPPortKey)
+        }
+        d.synchronize()
     }
 }

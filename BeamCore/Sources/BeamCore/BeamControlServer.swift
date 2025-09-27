@@ -9,8 +9,8 @@ import Foundation
 import Network
 import OSLog
 
-private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "control-server")
-private let bonjourLog = Logger(subsystem: BeamConfig.subsystemHost, category: "bonjour")
+private let serverLog  = Logger(subsystem: BeamConfig.subsystemHost,   category: "control-server")
+private let bonjourLog = Logger(subsystem: BeamConfig.subsystemHost,   category: "bonjour")
 
 public struct PendingPair: Identifiable, Equatable {
     public let id = UUID()
@@ -48,6 +48,11 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private var listener: NWListener?
     private var netService: NetService?
 
+    // Media UDP
+    private var udpListener: NWListener?
+    private var mediaService: NetService?
+    private var currentUDPPort: UInt16?
+
     // Book-keeping
     private var pendingByID: [UUID: PendingPair] = [:]
     private var connections: [NWConnection] = []
@@ -61,7 +66,12 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private var hbTimer: DispatchSourceTimer?
     private let hbInterval: TimeInterval = 5
 
-    // Bonjour recovery
+    // Broadcast/Media polling
+    private var pollTimer: DispatchSourceTimer?
+    private var lastPushedBroadcastOn: Bool = BeamConfig.isBroadcastOn()
+    private var lastPushedUDPPort: UInt16? = BeamConfig.getBroadcastUDPPort()
+
+    // Bonjour recovery (control service)
     private var bonjourName: String?
     private var bonjourBackoffAttempt: Int = 0
 
@@ -91,6 +101,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
         guard let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort) else {
             throw BeamError.connectionFailed("Bad control port")
         }
+
+        // Control listener
         let l = try NWListener(using: params, on: port)
         self.listener = l
 
@@ -115,15 +127,9 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 BeamLog.info("conn#\(cid) accepted (remote=\(remote), path=\(ps))", tag: "host")
 
                 // Path + viability diagnostics
-                conn.viabilityUpdateHandler = { isViable in
-                    BeamLog.debug("conn#\(cid) viable=\(isViable)", tag: "host")
-                }
-                conn.betterPathUpdateHandler = { hasBetter in
-                    BeamLog.debug("conn#\(cid) betterPath=\(hasBetter)", tag: "host")
-                }
-                conn.pathUpdateHandler = { path in
-                    BeamLog.debug("conn#\(cid) pathUpdate=\(pathSummary(path))", tag: "host")
-                }
+                conn.viabilityUpdateHandler = { isViable in BeamLog.debug("conn#\(cid) viable=\(isViable)", tag: "host") }
+                conn.betterPathUpdateHandler = { hasBetter in BeamLog.debug("conn#\(cid) betterPath=\(hasBetter)", tag: "host") }
+                conn.pathUpdateHandler = { path in BeamLog.debug("conn#\(cid) pathUpdate=\(pathSummary(path))", tag: "host") }
 
                 // Seed liveness timestamp so we don’t instantly trip before first rx
                 self.lastRxAtByConn[key] = Date()
@@ -133,22 +139,24 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         l.start(queue: .main)
 
-        // Publish Bonjour (classic)
+        // Publish Bonjour (control)
         let type = BeamConfig.controlService.hasSuffix(".") ? BeamConfig.controlService : BeamConfig.controlService + "."
         let ns = NetService(domain: "local.", type: type, name: serviceName, port: Int32(BeamConfig.controlPort))
         ns.includesPeerToPeer = true
         ns.delegate = self
         ns.publish()
         self.netService = ns
-
         self.publishedName = serviceName
         self.bonjourName = serviceName
         self.bonjourBackoffAttempt = 0
 
+        // Start media UDP listener (assigns a port and publishes Bonjour)
+        try startMediaUDP(serviceName: serviceName)
+
         startHeartbeats()
         startLivenessWatch()
-        self.isRunning = true
 
+        self.isRunning = true
         serverLog.info("Control server started on \(BeamConfig.controlPort), bonjour '\(serviceName)'")
         BeamLog.info("Host advertising '\(serviceName)' \(BeamConfig.controlService) on \(BeamConfig.controlPort)", tag: "host")
     }
@@ -157,6 +165,11 @@ public final class BeamControlServer: NSObject, ObservableObject {
     public func stop() {
         stopHeartbeats()
         stopLivenessWatch()
+
+        mediaService?.stop(); mediaService = nil
+        udpListener?.cancel(); udpListener = nil
+        BeamConfig.setBroadcastUDPPort(nil)
+
         netService?.stop(); netService = nil
         listener?.cancel(); listener = nil
 
@@ -172,6 +185,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
         publishedName = nil
         isRunning = false
+
         serverLog.info("Control server stopped")
         BeamLog.info("Host stopped", tag: "host")
     }
@@ -182,12 +196,15 @@ public final class BeamControlServer: NSObject, ObservableObject {
     public func accept(_ id: UUID) {
         guard let p = pendingByID.removeValue(forKey: id) else { return }
         pendingPairs.removeAll { $0.id == id }
+
         let sid = UUID()
-        let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
+        let udp = currentUDPPort
+        let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: udp, message: "OK")
         sendResponse(resp, over: p.connection)
 
-        // Push current broadcast status (M2)
+        // Push current broadcast status + media params (M2 + M3)
         pushBroadcastStatus(to: p.connection)
+        if let udp { pushMediaParams(to: p.connection, udpPort: udp) }
 
         sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: p.remoteDescription))
         sessionByConn[ObjectIdentifier(p.connection)] = sid
@@ -198,6 +215,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
     public func decline(_ id: UUID) {
         guard let p = pendingByID.removeValue(forKey: id) else { return }
         pendingPairs.removeAll { $0.id == id }
+
         let resp = HandshakeResponse(ok: false, sessionID: nil, udpPort: nil, message: "Declined")
         sendResponse(resp, over: p.connection)
         BeamLog.warn("conn#\(p.connID) DECLINE code \(p.code) from \(p.remoteDescription)", tag: "host")
@@ -238,8 +256,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 Task { @MainActor in
                     // Liveness: any inbound traffic refreshes the timestamp
                     self.lastRxAtByConn[key] = Date()
-
                     BeamLog.debug("conn#\(cid) rx \(data.count) bytes", tag: "host")
+
                     var buf = self.rxBuffers[key] ?? Data()
                     for line in Frame.drainLines(buffer: &buf, incoming: data) {
                         self.handleLine(line, from: conn)
@@ -259,7 +277,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     if let sid = self.sessionByConn.removeValue(forKey: key) {
                         self.sessions.removeAll { $0.id == sid }
                     }
-
                     self.rxBuffers.removeValue(forKey: key)
                     self.lastRxAtByConn.removeValue(forKey: key)
                     BeamLog.warn("conn#\(cid) closed (EOF=\(isEOF), err=\(String(describing: error)))", tag: "host")
@@ -290,11 +307,13 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
             if self.autoAccept {
                 let sid = UUID()
-                let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: nil, message: "OK")
+                let udp = currentUDPPort
+                let resp = HandshakeResponse(ok: true, sessionID: sid, udpPort: udp, message: "OK")
                 sendResponse(resp, over: conn)
 
-                // Push current broadcast status (M2)
+                // Push current broadcast status + media params (M2 + M3)
                 pushBroadcastStatus(to: conn)
+                if let udp { pushMediaParams(to: conn, udpPort: udp) }
 
                 sessions.append(ActiveSession(id: sid, startedAt: Date(), remoteDescription: remote))
                 sessionByConn[key] = sid
@@ -302,11 +321,12 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 return
             }
 
-            // Manual flow: track pending (and replace any older pending for the same connection)
+            // Manual flow: track pending
             let p = PendingPair(code: req.code, remoteDescription: remote, connection: conn, connID: cid)
             pendingByID[p.id] = p
             pendingIDByConn[key] = p.id
             pendingPairs.append(p)
+
             serverLog.info("Pending pair from \(remote, privacy: .public) code \(req.code, privacy: .public)")
             BeamLog.info("conn#\(cid) handshake code \(req.code) (pending=\(pendingPairs.count))", tag: "host")
             return
@@ -324,14 +344,16 @@ public final class BeamControlServer: NSObject, ObservableObject {
             conn.send(content: bytes, completion: .contentProcessed { _ in
                 BeamLog.debug("conn#\(cid) sent \(bytes.count) bytes (response ok=\(resp.ok))", tag: "host")
             })
-            if !resp.ok { conn.cancel() }
+            if !resp.ok {
+                conn.cancel()
+            }
         } catch {
             serverLog.error("Failed to encode response: \(error.localizedDescription, privacy: .public)")
             BeamLog.error("conn#\(cid) send failed: \(error.localizedDescription)", tag: "host")
         }
     }
 
-    // MARK: Broadcast status push (M2)
+    // MARK: Broadcast status + media params push
 
     private func pushBroadcastStatus(to conn: NWConnection) {
         let on = BeamConfig.isBroadcastOn()
@@ -349,11 +371,28 @@ public final class BeamControlServer: NSObject, ObservableObject {
         for c in connections { pushBroadcastStatus(to: c) }
     }
 
-    // MARK: Heartbeats (host → viewers)
+    private func pushMediaParams(to conn: NWConnection, udpPort: UInt16) {
+        do {
+            let bytes = try Frame.encodeLine(MediaParams(udpPort: udpPort))
+            conn.send(content: bytes, completion: .contentProcessed { _ in
+                BeamLog.debug("conn#\(self.cid(for: conn)) sent \(bytes.count) bytes (media udp=\(udpPort))", tag: "host")
+            })
+        } catch {
+            BeamLog.error("media params encode fail: \(error.localizedDescription)", tag: "host")
+        }
+    }
+
+    private func pushMediaParamsToAll(udpPort: UInt16) {
+        for c in connections { pushMediaParams(to: c, udpPort: udpPort) }
+    }
+
+    // MARK: Heartbeats + poll
 
     @MainActor
     private func startHeartbeats() {
         stopHeartbeats()
+
+        // Outbound heartbeats to all viewers
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + hbInterval, repeating: hbInterval)
         t.setEventHandler { [weak self] in
@@ -373,28 +412,31 @@ public final class BeamControlServer: NSObject, ObservableObject {
         t.resume()
         hbTimer = t
 
-        // Also poll broadcast flag and push when it changes (simple, robust)
-        // (We could use Darwin notifications; polling keeps the code straightforward for M2.)
-        var last = BeamConfig.isBroadcastOn()
-        let poll = DispatchSource.makeTimerSource(queue: .main)
-        poll.schedule(deadline: .now() + 1, repeating: 1)
-        poll.setEventHandler { [weak self] in
+        // Poll broadcast flag and UDP port and push when they change
+        let p = DispatchSource.makeTimerSource(queue: .main)
+        p.schedule(deadline: .now() + 1, repeating: 1)
+        p.setEventHandler { [weak self] in
             guard let self else { return }
-            let now = BeamConfig.isBroadcastOn()
-            if now != last {
-                last = now
+            let on = BeamConfig.isBroadcastOn()
+            let port = BeamConfig.getBroadcastUDPPort()
+            if on != self.lastPushedBroadcastOn {
+                self.lastPushedBroadcastOn = on
                 self.pushBroadcastStatusToAll()
             }
+            if port != self.lastPushedUDPPort, let udp = port {
+                self.lastPushedUDPPort = udp
+                self.currentUDPPort = udp
+                self.pushMediaParamsToAll(udpPort: udp)
+            }
         }
-        poll.resume()
-        // piggy-back on hbTimer so stopHeartbeats cancels both
-        hbTimer = t // (timer above already assigned)
+        p.resume()
+        pollTimer = p
     }
 
     @MainActor
     private func stopHeartbeats() {
-        hbTimer?.cancel()
-        hbTimer = nil
+        hbTimer?.cancel(); hbTimer = nil
+        pollTimer?.cancel(); pollTimer = nil
     }
 
     // MARK: Liveness diagnostics (viewer → host)
@@ -414,8 +456,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 if gap > self.livenessGrace {
                     let id = self.cid(for: c)
                     BeamLog.warn("LIVENESS: no viewer traffic on conn#\(id) for \(Int(gap))s; closing", tag: "host")
+
                     self.lastRxAtByConn.removeValue(forKey: key)
-                    // Remove pending or session entries for this connection
                     if let pid = self.pendingIDByConn.removeValue(forKey: key) {
                         self.pendingByID.removeValue(forKey: pid)
                         self.pendingPairs.removeAll { $0.id == pid }
@@ -438,20 +480,68 @@ public final class BeamControlServer: NSObject, ObservableObject {
         livenessTimer?.cancel()
         livenessTimer = nil
     }
+
+    // MARK: Media UDP listener + Bonjour
+
+    private func startMediaUDP(serviceName: String) throws {
+        // Bind UDP on any available port; allow AWDL too for resilience
+        let udpOpts = NWProtocolUDP.Options()
+        let params = NWParameters(dtls: nil, udp: udpOpts)
+        params.includePeerToPeer = true
+
+        let u = try NWListener(using: params)
+        self.udpListener = u
+
+        u.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                guard let port = u.port?.rawValue else { return }
+                self.currentUDPPort = port
+                BeamConfig.setBroadcastUDPPort(port)
+                BeamLog.info("Media UDP ready on \(port)", tag: "host")
+
+                // Publish media Bonjour
+                let type = BeamConfig.mediaService.hasSuffix(".") ? BeamConfig.mediaService : BeamConfig.mediaService + "."
+                let ns = NetService(domain: "local.", type: type, name: serviceName, port: Int32(port))
+                ns.includesPeerToPeer = true
+                ns.delegate = self
+                ns.publish()
+                self.mediaService = ns
+
+                // Also push to any already-connected viewers
+                self.pushMediaParamsToAll(udpPort: port)
+
+            case .failed(let err):
+                BeamLog.error("Media UDP failed: \(err.localizedDescription)", tag: "host")
+            default:
+                break
+            }
+        }
+
+        // No per-connection handler needed for UDP.
+        u.start(queue: .main)
+    }
 }
 
 // MARK: Bonjour delegate + recovery
+
 extension BeamControlServer: NetServiceDelegate {
     public func netServiceDidPublish(_ sender: NetService) {
         bonjourLog.info("Published \(sender.name, privacy: .public)")
         BeamLog.info("Bonjour published: \(sender.name)", tag: "host")
-        bonjourBackoffAttempt = 0
+        if sender === netService {
+            bonjourBackoffAttempt = 0
+        }
     }
 
     public func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
         bonjourLog.error("Publish error: \(String(describing: errorDict), privacy: .public)")
         BeamLog.error("Bonjour publish error: \(errorDict)", tag: "host")
-        scheduleBonjourRestart()
+        if sender === netService {
+            scheduleBonjourRestart()
+        }
+        // For mediaService we just log; if needed add separate backoff.
     }
 
     private func scheduleBonjourRestart() {
@@ -473,3 +563,4 @@ extension BeamControlServer: NetServiceDelegate {
         }
     }
 }
+
