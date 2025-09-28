@@ -12,6 +12,12 @@
 		E18442882E7F9C2900BEB38B /* BeamCore in Frameworks */ = {isa = PBXBuildFile; productRef = E18442872E7F9C2900BEB38B /* BeamCore */; };
 		E1D1D66B2E88BA3E008C2C40 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E13AEE432E7F942100331955 /* ReplayKit.framework */; };
 		E1D1D6722E88BA3E008C2C40 /* BeamRoomUpload2.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E1D1D67F2E88C113008C2C40 /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1D1D67E2E88C113008C2C40 /* VideoToolbox.framework */; };
+		E1D1D6812E88C12F008C2C40 /* Network.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1D1D6802E88C12F008C2C40 /* Network.framework */; };
+		E1D1D6832E88C140008C2C40 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1D1D6822E88C140008C2C40 /* CoreMedia.framework */; };
+		E1D1D6852E88C14B008C2C40 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1D1D6842E88C14B008C2C40 /* CoreVideo.framework */; };
+		E1D1D6872E88C157008C2C40 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1D1D6862E88C157008C2C40 /* AVFoundation.framework */; };
+		E1D1D6892E88C283008C2C40 /* BeamCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1D1D6882E88C283008C2C40 /* BeamCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +57,11 @@
 		E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BeamRoomBroadcastUpload.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13AEE432E7F942100331955 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
 		E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BeamRoomUpload2.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E1D1D67E2E88C113008C2C40 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
+		E1D1D6802E88C12F008C2C40 /* Network.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Network.framework; path = System/Library/Frameworks/Network.framework; sourceTree = SDKROOT; };
+		E1D1D6822E88C140008C2C40 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		E1D1D6842E88C14B008C2C40 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		E1D1D6862E88C157008C2C40 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -135,6 +146,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1D1D6872E88C157008C2C40 /* AVFoundation.framework in Frameworks */,
+				E1D1D6852E88C14B008C2C40 /* CoreVideo.framework in Frameworks */,
+				E1D1D6832E88C140008C2C40 /* CoreMedia.framework in Frameworks */,
+				E1D1D6812E88C12F008C2C40 /* Network.framework in Frameworks */,
+				E1D1D67F2E88C113008C2C40 /* VideoToolbox.framework in Frameworks */,
+				E1D1D6892E88C283008C2C40 /* BeamCore in Frameworks */,
 				E1D1D66B2E88BA3E008C2C40 /* ReplayKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -175,6 +192,11 @@
 		E13AEE422E7F942100331955 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E1D1D6862E88C157008C2C40 /* AVFoundation.framework */,
+				E1D1D6842E88C14B008C2C40 /* CoreVideo.framework */,
+				E1D1D6822E88C140008C2C40 /* CoreMedia.framework */,
+				E1D1D6802E88C12F008C2C40 /* Network.framework */,
+				E1D1D67E2E88C113008C2C40 /* VideoToolbox.framework */,
 				E13AEE432E7F942100331955 /* ReplayKit.framework */,
 			);
 			name = Frameworks;
@@ -249,6 +271,7 @@
 			);
 			name = BeamRoomUpload2;
 			packageProductDependencies = (
+				E1D1D6882E88C283008C2C40 /* BeamCore */,
 			);
 			productName = BeamRoomUpload2;
 			productReference = E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */;
@@ -647,7 +670,7 @@
 				MARKETING_VERSION = 0.9.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomUpload2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
+				SKIP_INSTALL = NO;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -676,7 +699,7 @@
 				MARKETING_VERSION = 0.9.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomUpload2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
+				SKIP_INSTALL = NO;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -740,6 +763,11 @@
 			productName = BeamCore;
 		};
 		E18442872E7F9C2900BEB38B /* BeamCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E13AEE512E7F961D00331955 /* XCLocalSwiftPackageReference "BeamCore" */;
+			productName = BeamCore;
+		};
+		E1D1D6882E88C283008C2C40 /* BeamCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E13AEE512E7F961D00331955 /* XCLocalSwiftPackageReference "BeamCore" */;
 			productName = BeamCore;
