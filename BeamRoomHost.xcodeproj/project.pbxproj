@@ -8,9 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		E13AEE442E7F942100331955 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E13AEE432E7F942100331955 /* ReplayKit.framework */; };
-		E13AEE4B2E7F942100331955 /* BeamRoomBroadcastUpload.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E13AEE532E7F961D00331955 /* BeamCore in Frameworks */ = {isa = PBXBuildFile; productRef = E13AEE522E7F961D00331955 /* BeamCore */; };
 		E18442882E7F9C2900BEB38B /* BeamCore in Frameworks */ = {isa = PBXBuildFile; productRef = E18442872E7F9C2900BEB38B /* BeamCore */; };
+		E1D1D66B2E88BA3E008C2C40 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E13AEE432E7F942100331955 /* ReplayKit.framework */; };
+		E1D1D6722E88BA3E008C2C40 /* BeamRoomUpload2.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -21,6 +22,13 @@
 			remoteGlobalIDString = E13AEE402E7F942100331955;
 			remoteInfo = BeamRoomBroadcastUpload;
 		};
+		E1D1D6702E88BA3E008C2C40 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E13AEDC92E7F73D100331955 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E1D1D6692E88BA3E008C2C40;
+			remoteInfo = BeamRoomUpload2;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -30,7 +38,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				E13AEE4B2E7F942100331955 /* BeamRoomBroadcastUpload.appex in Embed Foundation Extensions */,
+				E1D1D6722E88BA3E008C2C40 /* BeamRoomUpload2.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -42,6 +50,7 @@
 		E13AEE032E7F83A200331955 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = SOURCE_ROOT; };
 		E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BeamRoomBroadcastUpload.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13AEE432E7F942100331955 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
+		E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BeamRoomUpload2.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -59,6 +68,21 @@
 			);
 			target = E13AEDD02E7F73D100331955 /* BeamRoomHost */;
 		};
+		E1D1D6762E88BA3E008C2C40 /* Exceptions for "BeamRoomUpload2" folder in "BeamRoomUpload2" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */;
+		};
+		E1D1D67B2E88BB79008C2C40 /* Exceptions for "BeamRoomBroadcastUpload" folder in "BeamRoomUpload2" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				H264Encoder.swift,
+				UDPMediaSender.swift,
+			);
+			target = E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -74,8 +98,17 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E13AEE4F2E7F942100331955 /* Exceptions for "BeamRoomBroadcastUpload" folder in "BeamRoomBroadcastUpload" target */,
+				E1D1D67B2E88BB79008C2C40 /* Exceptions for "BeamRoomBroadcastUpload" folder in "BeamRoomUpload2" target */,
 			);
 			path = BeamRoomBroadcastUpload;
+			sourceTree = "<group>";
+		};
+		E1D1D66C2E88BA3E008C2C40 /* BeamRoomUpload2 */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E1D1D6762E88BA3E008C2C40 /* Exceptions for "BeamRoomUpload2" folder in "BeamRoomUpload2" target */,
+			);
+			path = BeamRoomUpload2;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -98,6 +131,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E1D1D6672E88BA3E008C2C40 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1D1D66B2E88BA3E008C2C40 /* ReplayKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -107,6 +148,7 @@
 				E13AEE022E7F823500331955 /* Docs */,
 				E13AEDD32E7F73D100331955 /* BeamRoomHost */,
 				E13AEE452E7F942100331955 /* BeamRoomBroadcastUpload */,
+				E1D1D66C2E88BA3E008C2C40 /* BeamRoomUpload2 */,
 				E13AEE422E7F942100331955 /* Frameworks */,
 				E13AEDD22E7F73D100331955 /* Products */,
 			);
@@ -117,6 +159,7 @@
 			children = (
 				E13AEDD12E7F73D100331955 /* BeamRoomHost.app */,
 				E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */,
+				E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -153,6 +196,7 @@
 			);
 			dependencies = (
 				E13AEE4A2E7F942100331955 /* PBXTargetDependency */,
+				E1D1D6712E88BA3E008C2C40 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				E13AEDD32E7F73D100331955 /* BeamRoomHost */,
@@ -188,6 +232,28 @@
 			productReference = E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E1D1D6732E88BA3E008C2C40 /* Build configuration list for PBXNativeTarget "BeamRoomUpload2" */;
+			buildPhases = (
+				E1D1D6662E88BA3E008C2C40 /* Sources */,
+				E1D1D6672E88BA3E008C2C40 /* Frameworks */,
+				E1D1D6682E88BA3E008C2C40 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E1D1D66C2E88BA3E008C2C40 /* BeamRoomUpload2 */,
+			);
+			name = BeamRoomUpload2;
+			packageProductDependencies = (
+			);
+			productName = BeamRoomUpload2;
+			productReference = E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -202,6 +268,9 @@
 						CreatedOnToolsVersion = 26.0;
 					};
 					E13AEE402E7F942100331955 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					E1D1D6692E88BA3E008C2C40 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -225,6 +294,7 @@
 			targets = (
 				E13AEDD02E7F73D100331955 /* BeamRoomHost */,
 				E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */,
+				E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */,
 			);
 		};
 /* End PBXProject section */
@@ -238,6 +308,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E13AEE3F2E7F942100331955 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E1D1D6682E88BA3E008C2C40 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -261,6 +338,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E1D1D6662E88BA3E008C2C40 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -268,6 +352,11 @@
 			isa = PBXTargetDependency;
 			target = E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */;
 			targetProxy = E13AEE492E7F942100331955 /* PBXContainerItemProxy */;
+		};
+		E1D1D6712E88BA3E008C2C40 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */;
+			targetProxy = E1D1D6702E88BA3E008C2C40 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -400,7 +489,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BeamRoomHost/BeamRoomHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -438,7 +527,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BeamRoomHost/BeamRoomHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -475,7 +564,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomBroadcastUpload/BeamRoomBroadcastUpload.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
@@ -509,7 +598,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomBroadcastUpload/BeamRoomBroadcastUpload.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
@@ -535,6 +624,64 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E1D1D6742E88BA3E008C2C40 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BeamRoomUpload2/BeamRoomUpload2.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 13;
+				DEVELOPMENT_TEAM = 92HEPEJ42Z;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BeamRoomUpload2/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BeamRoomUpload2;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.9.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomUpload2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E1D1D6752E88BA3E008C2C40 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BeamRoomUpload2/BeamRoomUpload2.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 13;
+				DEVELOPMENT_TEAM = 92HEPEJ42Z;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BeamRoomUpload2/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BeamRoomUpload2;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.9.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomUpload2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -565,6 +712,15 @@
 			buildConfigurations = (
 				E13AEE4D2E7F942100331955 /* Debug */,
 				E13AEE4E2E7F942100331955 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E1D1D6732E88BA3E008C2C40 /* Build configuration list for PBXNativeTarget "BeamRoomUpload2" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E1D1D6742E88BA3E008C2C40 /* Debug */,
+				E1D1D6752E88BA3E008C2C40 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
