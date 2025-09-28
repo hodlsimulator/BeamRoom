@@ -114,6 +114,11 @@
 			path = BeamRoomBroadcastUpload;
 			sourceTree = "<group>";
 		};
+		E172D5D42E88DFA200B2B817 /* scripts */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = scripts;
+			sourceTree = "<group>";
+		};
 		E1D1D66C2E88BA3E008C2C40 /* BeamRoomUpload2 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -162,6 +167,7 @@
 		E13AEDC82E7F73D100331955 = {
 			isa = PBXGroup;
 			children = (
+				E172D5D42E88DFA200B2B817 /* scripts */,
 				E13AEE022E7F823500331955 /* Docs */,
 				E13AEDD32E7F73D100331955 /* BeamRoomHost */,
 				E13AEE452E7F942100331955 /* BeamRoomBroadcastUpload */,
