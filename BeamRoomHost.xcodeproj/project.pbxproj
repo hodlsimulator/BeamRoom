@@ -86,14 +86,6 @@
 			);
 			target = E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */;
 		};
-		E1D1D67B2E88BB79008C2C40 /* Exceptions for "BeamRoomBroadcastUpload" folder in "BeamRoomUpload2" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				H264Encoder.swift,
-				UDPMediaSender.swift,
-			);
-			target = E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -109,7 +101,6 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E13AEE4F2E7F942100331955 /* Exceptions for "BeamRoomBroadcastUpload" folder in "BeamRoomBroadcastUpload" target */,
-				E1D1D67B2E88BB79008C2C40 /* Exceptions for "BeamRoomBroadcastUpload" folder in "BeamRoomUpload2" target */,
 			);
 			path = BeamRoomBroadcastUpload;
 			sourceTree = "<group>";
