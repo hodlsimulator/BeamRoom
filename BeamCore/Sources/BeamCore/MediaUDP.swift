@@ -33,7 +33,7 @@ public final class MediaUDP: @unchecked Sendable {
         mediaOS.notice("Media UDP starting…")
 
         let params = NWParameters.udp
-        params.requiredInterfaceType = .wifi
+        // Allow loopback (127.0.0.1) from the Broadcast Upload; Viewer is still on Wi-Fi.
         params.includePeerToPeer = false
 
         do {
