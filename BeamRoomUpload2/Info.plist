@@ -3,7 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>en-GB</string>
-  <key>CFBundleDisplayName</key><string>BeamRoom Upload</string>
   <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -17,13 +16,13 @@
   <dict>
     <key>NSExtensionPointIdentifier</key>
     <string>com.apple.broadcast-services-upload</string>
+
     <key>NSExtensionPrincipalClass</key>
     <string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
-    <key>NSExtensionAttributes</key>
-    <dict>
-      <key>RPBroadcastProcessMode</key>
-      <string>RPBroadcastProcessModeSampleBuffer</string>
-    </dict>
+
+    <!-- NOTE (per ASC feedback): RPBroadcastProcessMode lives directly under NSExtension -->
+    <key>RPBroadcastProcessMode</key>
+    <string>RPBroadcastProcessModeSampleBuffer</string>
   </dict>
 </dict>
 </plist>
