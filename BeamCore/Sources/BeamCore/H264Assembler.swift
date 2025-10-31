@@ -4,88 +4,119 @@
 //
 //  Created by . . on 9/27/25.
 //
-//  Reassembles fragmented H.264 access units (AVCC) and exposes param sets per keyframe.
+//  Reassembles fragmented M4 (H.264 over UDP) frames into AVCC access units.
 //
 
 import Foundation
 
 public final class H264Assembler {
+
     public struct Unit {
         public let seq: UInt32
         public let isKeyframe: Bool
         public let width: Int
         public let height: Int
-        public let paramSets: H264Wire.ParamSets? // only set on keyframes when present
-        public let avccData: Data                // length-prefixed NAL units
+        public let paramSets: H264Wire.ParamSets?   // present only on keyframes
+        public let avccData: Data                  // concatenated AVCC payload
     }
 
     private struct Partial {
         let createdAt = Date()
-        let partCount: Int
-        var got: [Bool]
-        var buffers: [Int: Data] = [:]
+        let totalParts: Int
+        var received: [Bool]
+        var chunks: [Int: Data] = [:]
         var cfg: H264Wire.ParamSets?
-        let isKeyframe: Bool
+        let keyframe: Bool
         let width: Int
         let height: Int
     }
 
-    private var map: [UInt32: Partial] = [:]
+    private var partials: [UInt32: Partial] = [:]
     private let maxAge: TimeInterval
-    public init(maxAge: TimeInterval = 1.0) { self.maxAge = maxAge }
 
+    public init(maxAge: TimeInterval = 1.0) {
+        self.maxAge = maxAge
+    }
+
+    /// Ingest one UDP datagram. Returns a complete Unit when all parts for `seq` have arrived.
     public func ingest(datagram: Data) -> Unit? {
         guard let (hdr, bodyOffset) = H264Wire.parseHeaderBE(datagram) else { return nil }
-        let totalParts = Int(hdr.partCount)
+
+        let seq = hdr.seq
+        let count = Int(hdr.partCount)
         let idx = Int(hdr.partIndex)
-        guard totalParts > 0, idx < totalParts else { return nil }
+        guard count > 0, idx >= 0, idx < count else { return nil }
 
         var start = bodyOffset
-        var paramSets: H264Wire.ParamSets?
+
+        // Optional param sets are only in part 0 when flagged.
+        var cfg: H264Wire.ParamSets?
         if idx == 0, hdr.flags.contains(.hasParamSet), hdr.configBytes > 0 {
             let cfgLen = Int(hdr.configBytes)
             guard start + cfgLen <= datagram.count else { return nil }
-            let cfgData = datagram.subdata(in: start..<(start+cfgLen))
+            let cfgBlob = datagram.subdata(in: start..<(start + cfgLen))
             start += cfgLen
-            paramSets = H264Wire.decodeParamSets(cfgData)
+            cfg = H264Wire.decodeParamSets(cfgBlob)
         }
+
         guard start <= datagram.count else { return nil }
-        let frag = datagram.subdata(in: start..<datagram.count)
+        let payload = datagram.subdata(in: start..<datagram.count)
 
-        // Garbage collect stale
-        let now = Date()
-        map = map.filter { now.timeIntervalSince($0.value.createdAt) <= maxAge }
-
-        var p = map[hdr.seq] ?? Partial(partCount: totalParts,
-                                        got: Array(repeating: false, count: totalParts),
-                                        cfg: nil,
-                                        isKeyframe: hdr.flags.contains(.keyframe),
-                                        width: Int(hdr.width),
-                                        height: Int(hdr.height))
-        if idx == 0, let ps = paramSets { p.cfg = ps }
-        if !p.got[idx] {
-            p.buffers[idx] = frag
-            p.got[idx] = true
+        // Upsert partial frame
+        var p: Partial
+        if let existing = partials[seq], existing.totalParts == count {
+            p = existing
+        } else {
+            // start a fresh container (or reset if partCount changed)
+            p = Partial(
+                totalParts: count,
+                received: Array(repeating: false, count: count),
+                chunks: [:],
+                cfg: nil,
+                keyframe: hdr.flags.contains(.keyframe),
+                width: Int(hdr.width),
+                height: Int(hdr.height)
+            )
         }
-        map[hdr.seq] = p
 
-        // Complete?
-        if p.got.allSatisfy({ $0 }) {
-            var out = Data()
-            for i in 0..<p.partCount {
-                guard let b = p.buffers[i] else { return nil }
-                out.append(b)
+        p.received[idx] = true
+        p.chunks[idx] = payload
+        if idx == 0, let cfg { p.cfg = cfg }
+
+        partials[seq] = p
+
+        // Completed?
+        if p.received.allSatisfy({ $0 }) {
+            var data = Data()
+            data.reserveCapacity(p.chunks.values.reduce(0) { $0 + $1.count })
+            for i in 0..<p.totalParts {
+                if let d = p.chunks[i] { data.append(d) } else { return nil } // shouldn’t happen
             }
-            map.removeValue(forKey: hdr.seq)
-            return Unit(seq: hdr.seq,
-                        isKeyframe: p.isKeyframe,
-                        width: p.width,
-                        height: p.height,
-                        paramSets: p.cfg,
-                        avccData: out)
+
+            partials.removeValue(forKey: seq)
+            pruneStale()
+
+            return Unit(
+                seq: seq,
+                isKeyframe: p.keyframe,
+                width: p.width,
+                height: p.height,
+                paramSets: p.cfg,
+                avccData: data
+            )
         }
+
+        pruneStale()
         return nil
     }
 
-    public func reset() { map.removeAll() }
+    /// Clear any incomplete frames older than `maxAge`.
+    public func reset() {
+        partials.removeAll()
+    }
+
+    private func pruneStale() {
+        let now = Date()
+        partials = partials.filter { now.timeIntervalSince($0.value.createdAt) < maxAge }
+    }
 }
