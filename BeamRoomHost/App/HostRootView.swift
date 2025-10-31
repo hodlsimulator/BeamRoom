@@ -20,7 +20,7 @@ final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
     @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
-    @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn() // mirror App Group flag
+    @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
     @Published var sessions: [BeamControlServer.ActiveSession] = []
     @Published var pendingPairs: [BeamControlServer.PendingPair] = []
     @Published var udpPeer: String? = nil
@@ -31,15 +31,17 @@ final class HostViewModel: ObservableObject {
 
     init() {
         self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
-        // Bridge server → view model
+
         server.$sessions
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.sessions = $0 }
             .store(in: &cancellables)
+
         server.$pendingPairs
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.pendingPairs = $0 }
             .store(in: &cancellables)
+
         server.$udpPeer
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.udpPeer = $0 }
@@ -83,7 +85,9 @@ final class HostViewModel: ObservableObject {
         pollTimer = t
     }
 
-    private func stopBroadcastPoll() { pollTimer?.cancel(); pollTimer = nil }
+    private func stopBroadcastPoll() {
+        pollTimer?.cancel(); pollTimer = nil
+    }
 }
 
 struct HostRootView: View {
@@ -115,11 +119,9 @@ struct HostRootView: View {
                     HStack {
                         Circle().frame(width: 10, height: 10)
                             .foregroundStyle(model.started ? .green : .secondary)
-                        Text(model.started
-                             ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)"
-                             : "Not advertising")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .lineLimit(2).minimumScaleFactor(0.8)
+                        Text(model.started ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)" : "Not advertising")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .lineLimit(2).minimumScaleFactor(0.8)
                     }
 
                     if !model.sessions.isEmpty {
@@ -191,7 +193,8 @@ struct HostRootView: View {
     }
 
     // MARK: Broadcast UI
-    @ViewBuilder private var broadcastSection: some View {
+    @ViewBuilder
+    private var broadcastSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Label(model.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
@@ -200,7 +203,17 @@ struct HostRootView: View {
                     .font(.headline)
                 Spacer()
             }
-            BroadcastPicker().frame(height: 44) // system Start/Stop button
+
+            // System picker. Make it take width so it can't collapse to 0.
+            BroadcastPicker()
+                .frame(maxWidth: .infinity, minHeight: 44)
+
+            // Fallback button: programmatically taps the hidden picker button.
+            Button(model.broadcastOn ? "Open Broadcast Controls" : "Start Broadcast") {
+                BroadcastPicker.programmaticTap()
+            }
+            .buttonStyle(.bordered)
+
             HStack(spacing: 6) {
                 Text("Active Viewer UDP peer:").foregroundStyle(.secondary)
                 Text(model.udpPeer ?? "none")
@@ -211,13 +224,30 @@ struct HostRootView: View {
 }
 
 // RPSystemBroadcastPickerView wrapper: auto-detects the Upload extension.
+// Exposes a programmaticTap() fallback to trigger the system UI if the
+// button isn’t visible for any reason.
 private struct BroadcastPicker: UIViewRepresentable {
+
+    private static weak var cachedPicker: RPSystemBroadcastPickerView?
+
+    static func programmaticTap() {
+        guard let picker = cachedPicker else { return }
+        for v in picker.subviews {
+            if let b = v as? UIButton {
+                b.sendActions(for: .touchUpInside)
+                break
+            }
+        }
+    }
+
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let v = RPSystemBroadcastPickerView()
         v.showsMicrophoneButton = false
         v.preferredExtension = Self.findUploadExtensionBundleID()
+        BroadcastPicker.cachedPicker = v
         return v
     }
+
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 
     private static func findUploadExtensionBundleID() -> String? {
