@@ -254,16 +254,20 @@ private struct BroadcastPicker: UIViewRepresentable {
         guard let plugins = Bundle.main.builtInPlugInsURL else { return nil }
         let fm = FileManager.default
         guard let it = fm.enumerator(at: plugins, includingPropertiesForKeys: nil) else { return nil }
+        var candidates: [(id: String, name: String)] = []
         for case let url as URL in it {
-            if url.pathExtension == "appex",
-               let b = Bundle(url: url),
-               let info = b.infoDictionary,
-               let ext = info["NSExtension"] as? [String: Any],
-               let point = ext["NSExtensionPointIdentifier"] as? String,
-               point == "com.apple.broadcast-services-upload" {
-                return b.bundleIdentifier
-            }
+            if url.pathExtension != "appex" { continue }
+            guard
+                let b = Bundle(url: url),
+                let info = b.infoDictionary,
+                let ext = info["NSExtension"] as? [String: Any],
+                let point = ext["NSExtensionPointIdentifier"] as? String,
+                point == "com.apple.broadcast-services-upload",
+                let id = b.bundleIdentifier
+            else { continue }
+            candidates.append((id, url.lastPathComponent.lowercased()))
         }
-        return nil
+        if let pick = candidates.first(where: { $0.name.contains("upload2") }) { return pick.id }
+        return candidates.first?.id
     }
 }
