@@ -25,6 +25,7 @@ private func udpIfaceTypeString(_ t: NWInterface.InterfaceType) -> String {
     @unknown default: return "other"
     }
 }
+
 private func udpPathSummary(_ path: NWPath?) -> String {
     guard let p = path else { return "path=?" }
     let ifs = p.availableInterfaces.map { udpIfaceTypeString($0.type) }.joined(separator: ",")
@@ -40,7 +41,7 @@ public final class UDPMediaClient: ObservableObject {
         public var fps: Double = 0
         public var kbps: Double = 0
         public var lastSeq: UInt32 = 0
-        public var drops: UInt64 = 0 // sequence gaps
+        public var drops: UInt64 = 0
         public init() {}
     }
 
@@ -60,10 +61,9 @@ public final class UDPMediaClient: ObservableObject {
     private var badMagicCount: UInt64 = 0
     private var badSizeCount: UInt64 = 0
     private var lastSummaryAt = Date()
-
     private var afterReadyWarnTimer: DispatchSourceTimer?
 
-    // NEW: periodic keep-alive so Host retains peer mapping.
+    // Keep-alive so the Host retains our peer mapping.
     private var keepaliveTimer: DispatchSourceTimer?
     private let keepaliveInterval: TimeInterval = 2.5
 
@@ -81,10 +81,12 @@ public final class UDPMediaClient: ObservableObject {
         }
         disconnect()
         connectedKey = key
+
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             BeamLog.error("UDP connect failed: invalid port \(port)", tag: "viewer")
             return
         }
+
         let params = NWParameters.udp
         params.requiredInterfaceType = .wifi
         params.includePeerToPeer = false
@@ -97,8 +99,10 @@ public final class UDPMediaClient: ObservableObject {
             guard let self else { return }
             let ps = udpPathSummary(c.currentPath)
             switch state {
-            case .setup:     BeamLog.debug("UDP state=setup (\(ps))", tag: "viewer")
-            case .preparing: BeamLog.debug("UDP state=preparing (\(ps))", tag: "viewer")
+            case .setup:
+                BeamLog.debug("UDP state=setup (\(ps))", tag: "viewer")
+            case .preparing:
+                BeamLog.debug("UDP state=preparing (\(ps))", tag: "viewer")
             case .ready:
                 mediaOS.info("UDP ready → \(String(describing: host)):\(port)")
                 BeamLog.info("UDP ready (\(ps)) → send hello & recv", tag: "viewer")
@@ -122,6 +126,7 @@ public final class UDPMediaClient: ObservableObject {
                 BeamLog.debug("UDP state=\(String(describing: state)) (\(ps))", tag: "viewer")
             }
         }
+
         c.start(queue: .main)
     }
 
@@ -134,15 +139,18 @@ public final class UDPMediaClient: ObservableObject {
         bytesInWindow = 0
         framesInWindow = 0
         connectedKey = nil
-        // reset diagnostics
+
+        // Reset diagnostics
         sawAnyDatagram = false
         sawFirstValidFrame = false
         shortHeaderCount = 0
         badMagicCount = 0
         badSizeCount = 0
         lastSummaryAt = Date()
+
         assembler.reset()
         decoder.invalidate()
+
         BeamLog.info("UDP disconnected", tag: "viewer")
     }
 
@@ -165,6 +173,7 @@ public final class UDPMediaClient: ObservableObject {
         guard let c = conn else { return }
         c.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
+
             if let d = data, !d.isEmpty {
                 if !self.sawAnyDatagram {
                     self.sawAnyDatagram = true
@@ -173,87 +182,104 @@ public final class UDPMediaClient: ObservableObject {
                 }
                 self.handleDatagram(d)
             }
+
             if let error {
                 mediaOS.error("UDP recv error: \(error.localizedDescription, privacy: .public)")
                 BeamLog.error("UDP recv error: \(error.localizedDescription)", tag: "viewer")
                 Task { @MainActor in self.disconnect() }
                 return
             }
+
             self.receiveLoop()
         }
     }
 
     private func handleDatagram(_ data: Data) {
-        // Try M4 video first
-        if let unit = assembler.ingest(datagram: data) {
-            // Stats (seq drop detection)
-            if stats.frames > 0, unit.seq > stats.lastSeq + 1 { stats.drops += UInt64(unit.seq - stats.lastSeq - 1) }
-            stats.lastSeq = unit.seq
-            stats.frames &+= 1
-            bytesInWindow += data.count
-            framesInWindow &+= 1
-            let now = Date()
-            let elapsed = now.timeIntervalSince(windowStart)
-            if elapsed >= 1.0 {
-                stats.fps  = Double(framesInWindow) / elapsed
-                stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
-                windowStart = now; bytesInWindow = 0; framesInWindow = 0
-                BeamLog.debug(String(format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu", stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
-            }
-
-            // Avoid capturing non-Sendable structs by grabbing scalars.
-            let w = unit.width
-            let h = unit.height
-            let s = unit.seq
-
-            decoder.decode(avcc: unit.avccData, paramSets: unit.paramSets) { [weak self] cg in
-                guard let self else { return }
-                if let cg, !self.sawFirstValidFrame {
-                    self.sawFirstValidFrame = true
-                    BeamLog.info("UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))", tag: "viewer")
+        // If it's M4 (BMRV), feed the assembler and stop. Do NOT fall back to M3 for in-progress parts.
+        if H264Wire.parseHeaderBE(data) != nil {
+            if let unit = assembler.ingest(datagram: data) {
+                if stats.frames > 0, unit.seq > stats.lastSeq + 1 {
+                    stats.drops += UInt64(unit.seq - stats.lastSeq - 1)
                 }
-                self.lastImage = cg
+                stats.lastSeq = unit.seq
+                stats.frames &+= 1
+                bytesInWindow += data.count
+                framesInWindow &+= 1
+
+                let now = Date()
+                let elapsed = now.timeIntervalSince(windowStart)
+                if elapsed >= 1.0 {
+                    stats.fps = Double(framesInWindow) / elapsed
+                    stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
+                    windowStart = now; bytesInWindow = 0; framesInWindow = 0
+                    BeamLog.debug(String(format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
+                                         stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
+                }
+
+                let w = unit.width
+                let h = unit.height
+                let s = unit.seq
+
+                decoder.decode(avcc: unit.avccData, paramSets: unit.paramSets) { [weak self] cg in
+                    guard let self else { return }
+                    if let cg {
+                        if !self.sawFirstValidFrame {
+                            self.sawFirstValidFrame = true
+                            BeamLog.info("UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))", tag: "viewer")
+                        }
+                        self.lastImage = cg
+                    }
+                    // If decode failed, keep the previous image instead of blanking the preview.
+                }
             }
             return
         }
 
         // Fallback: M3 BGRA preview
-        // Header: [u32 'BMRM'][u32 seq][u16 w][u16 h] (BE)
         guard data.count >= 12 else { shortHeaderCount &+= 1; maybeSummarise(); return }
         let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).bigEndian }
         guard magic == 0x424D524D /* 'BMRM' */ else { badMagicCount &+= 1; maybeSummarise(); return }
 
         let seq = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
-        let w   = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
-        let h   = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
+        let w = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
+        let h = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
+
         let pixelBytes = data.count - 12
-        let expected   = w * h * 4
+        let expected = w * h * 4
         guard pixelBytes == expected, expected > 0 else {
-            badSizeCount &+= 1; maybeSummarise(extra: "badSize got=\(pixelBytes) want=\(expected) w=\(w) h=\(h)"); return
+            badSizeCount &+= 1
+            maybeSummarise(extra: "badSize got=\(pixelBytes) want=\(expected) w=\(w) h=\(h)")
+            return
         }
 
-        if stats.frames > 0, seq > stats.lastSeq + 1 { stats.drops += UInt64(seq - stats.lastSeq - 1) }
+        if stats.frames > 0, seq > stats.lastSeq + 1 {
+            stats.drops += UInt64(seq - stats.lastSeq - 1)
+        }
         stats.lastSeq = seq
         stats.frames &+= 1
         bytesInWindow += data.count
         framesInWindow &+= 1
+
         let now = Date()
         let elapsed = now.timeIntervalSince(windowStart)
         if elapsed >= 1.0 {
-            stats.fps  = Double(framesInWindow) / elapsed
+            stats.fps = Double(framesInWindow) / elapsed
             stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
             windowStart = now; bytesInWindow = 0; framesInWindow = 0
-            BeamLog.debug(String(format: "UDP preview rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu", stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
+            BeamLog.debug(String(format: "UDP preview rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
+                                 stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
         }
 
         let pixels = data.subdata(in: 12..<(12 + pixelBytes)) as CFData
         let provider = CGDataProvider(data: pixels)
-        let cs  = CGColorSpaceCreateDeviceRGB()
+        let cs = CGColorSpaceCreateDeviceRGB()
         let bmp: CGBitmapInfo = [.byteOrder32Little, CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)]
         let rowBytes = w * 4
-        if let provider, let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
-                                           bytesPerRow: rowBytes, space: cs, bitmapInfo: bmp,
-                                           provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) {
+
+        if let provider,
+           let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
+                             bytesPerRow: rowBytes, space: cs, bitmapInfo: bmp,
+                             provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) {
             if !sawFirstValidFrame {
                 sawFirstValidFrame = true
                 BeamLog.info("UDP first valid frame ✓ \(w)x\(h) (seq \(seq))", tag: "viewer")
@@ -270,8 +296,8 @@ public final class UDPMediaClient: ObservableObject {
             lastSummaryAt = now
             var bits: [String] = []
             if shortHeaderCount > 0 { bits.append("short \(shortHeaderCount)") }
-            if badMagicCount  > 0 { bits.append("badMagic \(badMagicCount)") }
-            if badSizeCount   > 0 { bits.append("badSize \(badSizeCount)") }
+            if badMagicCount > 0 { bits.append("badMagic \(badMagicCount)") }
+            if badSizeCount > 0 { bits.append("badSize \(badSizeCount)") }
             if !bits.isEmpty {
                 BeamLog.info("UDP rx rejects: " + bits.joined(separator: " • ") + (extra != nil ? " • \(extra!)" : ""), tag: "viewer")
             }
