@@ -4,8 +4,9 @@
 //
 //  Created by . . on 9/27/25.
 //
-//  Broadcast Upload extension → sends AVCC H.264 over UDP directly to the
-//  active Viewer peer (ip:port) that the Host publishes into the App Group.
+//  Broadcast Upload extension → sends AVCC H.264 over UDP to the Host's local
+//  media listener (127.0.0.1:<udpPort>). The Host will forward to the active
+//  Viewer peer discovered from keep-alives.
 //
 
 import Foundation
@@ -19,10 +20,8 @@ actor UDPMediaSender {
 
     // MARK: State
     private var conn: NWConnection?
-    private var currentPeer: (host: String, port: UInt16)?
+    private var currentDest: (host: String, port: UInt16)?
     private var seq: UInt32 = 0
-    private var observing = false
-
     private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "udp-send")
 
     // Conservative payload to avoid IP fragmentation on Wi-Fi.
@@ -31,21 +30,21 @@ actor UDPMediaSender {
 
     // MARK: Lifecycle
     func start() async {
-        if !observing {
-            startObservingPeerChanges()
-            observing = true
-        }
         await reconnectIfNeeded(reason: "start")
     }
 
     func stop() async {
-        stopObservingPeerChanges()
-        observing = false
         await disconnect()
     }
 
     // MARK: Sending
-    func sendAVCC(width: Int, height: Int, avcc: Data, paramSets: H264Wire.ParamSets?, isKeyframe: Bool) async {
+    func sendAVCC(
+        width: Int,
+        height: Int,
+        avcc: Data,
+        paramSets: H264Wire.ParamSets?,
+        isKeyframe: Bool
+    ) async {
         guard await ensureConnection() else { return }
 
         // Param-set blob for keyframes (SPS/PPS)
@@ -57,7 +56,7 @@ actor UDPMediaSender {
             if !cfg.isEmpty { flags.insert(.hasParamSet) }
         }
 
-        // Split the AVCC data into parts that fit within our UDP budget
+        // Split the AVCC data into parts that fit within our UDP budget.
         let max0 = maxUDPPayload - fixedHeaderBytes - (cfg.isEmpty ? 0 : cfg.count)
         let chunk0 = max(0, min(max0, avcc.count))
         let remaining = avcc.count - chunk0
@@ -124,21 +123,27 @@ actor UDPMediaSender {
     }
 
     private func reconnectIfNeeded(reason: String) async {
-        let peer = BeamConfig.getMediaPeer()
-        if peer == nil { return }
-        if let cur = currentPeer, cur.host == peer!.host && cur.port == peer!.port { return }
-        currentPeer = peer
-        await connect(to: peer!)
-        log.notice("Peer changed → \(peer!.host, privacy: .public):\(peer!.port) (\(reason, privacy: .public))")
+        // Always target the Host’s local UDP listener; Host will forward to Viewer.
+        guard let port = BeamConfig.getBroadcastUDPPort() else {
+            return
+        }
+        let dest = (host: "127.0.0.1", port: port)
+        if let cur = currentDest, cur.host == dest.host && cur.port == dest.port {
+            return
+        }
+        currentDest = dest
+        await connect(to: dest)
+        log.notice("Uplink dest → \(dest.host, privacy: .public):\(dest.port) (\(reason, privacy: .public))")
     }
 
-    private func connect(to peer: (host: String, port: UInt16)) async {
+    private func connect(to dest: (host: String, port: UInt16)) async {
         await disconnect()
 
-        guard let nwPort = NWEndpoint.Port(rawValue: peer.port) else { return }
-        let host = NWEndpoint.Host(peer.host)
+        guard let nwPort = NWEndpoint.Port(rawValue: dest.port) else { return }
+        let host = NWEndpoint.Host(dest.host)
+
+        // For loopback, don't restrict the interface type.
         let params = NWParameters.udp
-        params.requiredInterfaceType = .wifi
         params.includePeerToPeer = false
 
         let c = NWConnection(host: host, port: nwPort, using: params)
@@ -148,17 +153,18 @@ actor UDPMediaSender {
             guard let self else { return }
             switch state {
             case .ready:
-                self.log.notice("UDP ready → \(peer.host, privacy: .public):\(peer.port)")
+                self.log.notice("UDP uplink ready → \(dest.host, privacy: .public):\(dest.port)")
             case .failed(let err):
-                self.log.error("UDP failed: \(err.localizedDescription, privacy: .public)")
+                self.log.error("UDP uplink failed: \(err.localizedDescription, privacy: .public)")
                 Task { await self.disconnect() }
             case .cancelled:
-                self.log.notice("UDP cancelled")
+                self.log.notice("UDP uplink cancelled")
                 Task { await self.disconnect() }
             default:
                 break
             }
         }
+
         c.start(queue: .main)
     }
 
@@ -168,38 +174,21 @@ actor UDPMediaSender {
     }
 
     private func sendPacket(_ data: Data) async throws {
-        guard let c = conn else { throw NSError(domain: "UDPMediaSender", code: -1) }
+        guard let c = conn else {
+            throw NSError(domain: "UDPMediaSender", code: -1)
+        }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             c.send(content: data, completion: .contentProcessed { err in
-                if let e = err { cont.resume(throwing: e) } else { cont.resume() }
+                if let e = err {
+                    cont.resume(throwing: e)
+                } else {
+                    cont.resume()
+                }
             })
         }
     }
 
-    // MARK: Darwin notify for peer changes
-    private func startObservingPeerChanges() {
-        let center = CFNotificationCenterGetDarwinNotifyCenter()
-        let name = CFNotificationName(BeamConfig.mediaPeerDarwinName as CFString)
-        CFNotificationCenterAddObserver(
-            center,
-            Unmanaged.passUnretained(self).toOpaque(),
-            { _, observer, _, _, _ in
-                guard let observer = observer else { return }
-                let me = Unmanaged<UDPMediaSender>.fromOpaque(observer).takeUnretainedValue()
-                Task { await me.reconnectIfNeeded(reason: "darwin") }
-            },
-            name.rawValue,
-            nil,
-            .deliverImmediately
-        )
-    }
-
-    private func stopObservingPeerChanges() {
-        let center = CFNotificationCenterGetDarwinNotifyCenter()
-        CFNotificationCenterRemoveEveryObserver(center, Unmanaged.passUnretained(self).toOpaque())
-    }
-
-    // MARK: Header encode (local to avoid visibility issues)
+    // MARK: Header encode (local helper)
     private func encodeHeaderBE(_ h: H264Wire.Header) -> Data {
         var out = Data(capacity: fixedHeaderBytes)
         out.appendBE(H264Wire.magic)

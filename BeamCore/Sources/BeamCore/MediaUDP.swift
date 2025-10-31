@@ -5,22 +5,18 @@
 //  Created by . . on 9/27/25.
 //
 //  Host-side UDP listener + (optional) M3 fake-frame sender.
-//  Also bridges the currently active Viewer peer (ip:port) into the App Group
-//  so the Broadcast Upload extension can stream real H.264 to the same peer.
-//
-//  Works with UDPMediaClient.swift (Viewer) which already sends BRHI!    keep-alives.
-//  After this change, every inbound datagram refreshes the active peer and makes
-//  fake frames resume immediately after reconnects. When Broadcast is ON, you
-//  typically won’t use fake frames at all.
+//  Also bridges the active Viewer peer (ip:port) into the App Group so the
+//  Broadcast Upload extension can stream H.264 to the Host, which then forwards
+//  to the active Viewer. Viewer keep-alives (BRHI!) maintain the mapping.
 //
 
 import Foundation
 import Network
 import OSLog
 
-public final class MediaUDP {
+public final class MediaUDP: @unchecked Sendable {
 
-    // MARK: - Public types (make closures Sendable)
+    // MARK: - Public types
     public typealias ReadyHandler = @Sendable (_ udpPort: UInt16) -> Void
     public typealias ErrorHandler = @Sendable (_ error: Error) -> Void
     public typealias PeerChangedHandler = @Sendable (_ peer: String?) -> Void
@@ -33,6 +29,7 @@ public final class MediaUDP {
     // MARK: - API
     public func start(onReady: @escaping ReadyHandler, onError: @escaping ErrorHandler) {
         guard listener == nil else { return }
+
         mediaOS.notice("Media UDP starting…")
 
         let params = NWParameters.udp
@@ -51,15 +48,12 @@ public final class MediaUDP {
                     self.localPort = UInt16(port)
                     BeamLog.info("Media UDP listener ready on \(port)", tag: "host")
                     self.mediaOS.notice("Media UDP ready on port \(port)")
-                    // Tell the rest of the app (Host UI + control server)
                     BeamConfig.setBroadcastUDPPort(UInt16(port))
                     onReady(UInt16(port))
                 case .failed(let error):
                     self.stop()
                     BeamLog.error("Media UDP failed: \(error.localizedDescription)", tag: "host")
                     onError(error)
-                case .cancelled:
-                    break
                 default:
                     break
                 }
@@ -77,12 +71,9 @@ public final class MediaUDP {
 
     public func stop() {
         stopTestFrames()
-
         for (_, c) in conns { c.cancel() }
         conns.removeAll()
-
-        listener?.cancel()
-        listener = nil
+        listener?.cancel(); listener = nil
 
         activeKey = nil
         activeLastSeen = .distantPast
@@ -96,16 +87,12 @@ public final class MediaUDP {
     // MARK: - Fake preview (M3) — optional
     public func startTestFrames(fps: Double = 12.0, width: Int = 20, height: Int = 12) {
         guard testTimer == nil else { return }
-        m3W = width
-        m3H = height
-        m3Seq = 0
+        m3W = width; m3H = height; m3Seq = 0
 
         let t = DispatchSource.makeTimerSource(queue: queue)
         let interval = DispatchTimeInterval.milliseconds(Int(1000.0 / max(1.0, fps)))
         t.schedule(deadline: .now() + interval, repeating: interval)
-        t.setEventHandler { [weak self] in
-            self?.tickTestFrame()
-        }
+        t.setEventHandler { [weak self] in self?.tickTestFrame() }
         t.resume()
         testTimer = t
 
@@ -118,19 +105,17 @@ public final class MediaUDP {
     }
 
     // MARK: - Internals
+
     private let queue = DispatchQueue(label: "media-udp.host")
     private var listener: NWListener?
     private var conns: [String: NWConnection] = [:] // key = "ip:port"
-
     private var activeKey: String? = nil
     private var activeLastSeen: Date = .distantPast
     private var expireTimer: DispatchSourceTimer?
-
     private var testTimer: DispatchSourceTimer?
     private var m3Seq: UInt32 = 0
     private var m3W: Int = 20
     private var m3H: Int = 12
-
     private var localPort: UInt16 = 0
 
     private let onPeerChanged: PeerChangedHandler?
@@ -140,13 +125,19 @@ public final class MediaUDP {
         let key = Self.describeRemote(nw)
         conns[key] = nw
 
+        let isUplink = Self.isLoopbackKey(key) // extension → host (127.0.0.1)
+
         nw.stateUpdateHandler = { [weak self] (state: NWConnection.State) in
             guard let self else { return }
             switch state {
             case .ready:
-                BeamLog.info("UDP peer ready: \(key)", tag: "host")
-                self.adoptActivePeer(key)
-                self.startReceiveLoop(on: nw, key: key)
+                if isUplink {
+                    BeamLog.info("UDP uplink ready (local): \(key)", tag: "host")
+                } else {
+                    BeamLog.info("UDP peer ready: \(key)", tag: "host")
+                    self.adoptActivePeer(key)
+                }
+                self.startReceiveLoop(on: nw, key: key, isUplink: isUplink)
             case .failed(let error):
                 BeamLog.error("UDP peer failed: \(error.localizedDescription)", tag: "host")
                 self.evict(key)
@@ -161,7 +152,7 @@ public final class MediaUDP {
         nw.start(queue: queue)
     }
 
-    private func startReceiveLoop(on nw: NWConnection, key: String) {
+    private func startReceiveLoop(on nw: NWConnection, key: String, isUplink: Bool) {
         nw.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
 
@@ -172,13 +163,28 @@ public final class MediaUDP {
             }
 
             if let d = data, !d.isEmpty {
-                self.adoptActivePeer(key, sawBytes: d.count)
+                if isUplink {
+                    // If this is an H.264 (M4) datagram from the extension, forward to active Viewer.
+                    if H264Wire.parseHeaderBE(d) != nil {
+                        self.forwardToActivePeer(d)
+                    } else {
+                        // Ignore any other local noise.
+                    }
+                } else {
+                    // Datagrams from the Viewer refresh/maintain the active peer mapping.
+                    self.adoptActivePeer(key, sawBytes: d.count)
+                }
             }
 
             if self.conns[key] != nil {
-                self.startReceiveLoop(on: nw, key: key)
+                self.startReceiveLoop(on: nw, key: key, isUplink: isUplink)
             }
         }
+    }
+
+    private func forwardToActivePeer(_ data: Data) {
+        guard let c = connForActivePeer() else { return }
+        c.send(content: data, completion: .contentProcessed { _ in })
     }
 
     private func adoptActivePeer(_ key: String, sawBytes: Int? = nil) {
@@ -261,19 +267,20 @@ public final class MediaUDP {
         let t = Int((Date().timeIntervalSinceReferenceDate * 60).truncatingRemainder(dividingBy: 255))
         for y in 0..<m3H {
             for x in 0..<m3W {
-                let b = UInt8((x * 7 + t) & 0xFF)
-                let g = UInt8((y * 11 + t * 2) & 0xFF)
-                let r = UInt8(((x + y) * 5 + t * 3) & 0xFF)
-                data.append(b); data.append(g); data.append(r); data.append(0xFF)
+                let v = UInt8((x + y + t) % 255)
+                // BGRA
+                data.append(v)        // B
+                data.append(255 - v)  // G
+                data.append(v)        // R
+                data.append(255)      // A
             }
         }
 
-        c.send(content: data, completion: .contentProcessed { err in
-            if let err { BeamLog.error("UDP send error: \(err.localizedDescription)", tag: "host") }
-        })
+        c.send(content: data, completion: .contentProcessed { _ in })
     }
 
-    // MARK: - Active peer bridge (App Group)
+    // MARK: - Peer publish + helpers
+
     private func publishActivePeer(_ key: String?) {
         if let key, let (host, port) = Self.split(key) {
             BeamConfig.setMediaPeer(host: host, port: port)
@@ -282,35 +289,40 @@ public final class MediaUDP {
         }
     }
 
-    // MARK: - Utilities
     private static func describeRemote(_ nw: NWConnection) -> String {
-        // Prefer the endpoint
+        // Prefer the endpoint if available
         if case let .hostPort(host, port) = nw.endpoint {
             return "\(host.debugDescription):\(port.rawValue)"
         }
-        // Fallback: current path's remote endpoint
+        // Fallback to current path's remote endpoint
         if let ep = nw.currentPath?.remoteEndpoint, case let .hostPort(host, port) = ep {
             return "\(host.debugDescription):\(port.rawValue)"
         }
         return "?:0"
     }
 
+    private static func isLoopbackKey(_ key: String) -> Bool {
+        guard let (host, _) = split(key) else { return false }
+        return host == "127.0.0.1" || host == "::1" || host == "localhost"
+    }
+
     private static func split(_ key: String) -> (String, UInt16)? {
+        // [IPv6]:port or IPv4:port
         if key.hasPrefix("[") {
-            guard let close = key.firstIndex(of: "]"),
-                  let colon = key[key.index(after: close)...].lastIndex(of: ":") else { return nil }
+            guard
+                let close = key.firstIndex(of: "]"),
+                let colon = key[key.index(after: close)...].lastIndex(of: ":")
+            else { return nil }
             let host = String(key[key.index(after: key.startIndex)..<close])
             let portStr = String(key[key.index(after: colon)...])
-            guard let port = UInt16(portStr) else { return nil }
-            return (host, port)
+            guard let p = UInt16(portStr) else { return nil }
+            return (host, p)
         } else {
             guard let colon = key.lastIndex(of: ":") else { return nil }
             let host = String(key[..<colon])
             let portStr = String(key[key.index(after: colon)...])
-            guard let port = UInt16(portStr) else { return nil }
-            return (host, port)
+            guard let p = UInt16(portStr) else { return nil }
+            return (host, p)
         }
     }
 }
-
-extension MediaUDP: @unchecked Sendable {}
