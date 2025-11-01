@@ -45,12 +45,13 @@ final class ViewerViewModel: ObservableObject {
         browser.stop()
     }
 
-    // Open the sheet with a fresh code; connect happens in pair()
+    // Open the sheet and auto-pair when a host is tapped
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
         showPairSheet = true
+        pair() // ← start control connection immediately
     }
 
     // Connect when the user taps “Pair”
