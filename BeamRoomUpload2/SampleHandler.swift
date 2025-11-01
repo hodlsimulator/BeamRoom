@@ -5,11 +5,11 @@
 //  Created by . . on 9/28/25.
 //
 
-
 import ReplayKit
 import OSLog
 import BeamCore
 
+@objc(SampleHandler)
 final class SampleHandler: RPBroadcastSampleHandler {
 
     private let log = Logger(subsystem: BeamConfig.subsystemExt, category: "upload2")
