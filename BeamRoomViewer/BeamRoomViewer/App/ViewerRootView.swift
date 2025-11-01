@@ -41,9 +41,11 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    func stopDiscovery() { browser.stop() }
+    func stopDiscovery() {
+        browser.stop()
+    }
 
-    // Don’t connect here — just open the sheet with a fresh code
+    // Open the sheet with a fresh code; connect happens in pair()
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
@@ -51,11 +53,12 @@ final class ViewerViewModel: ObservableObject {
         showPairSheet = true
     }
 
-    // Connect when the user taps “Pair” in the sheet
+    // Connect when the user taps “Pair”
     func pair() {
         guard let host = selectedHost else { return }
         switch client.status {
-        case .idle, .failed: client.connect(to: host, code: code)
+        case .idle, .failed:
+            client.connect(to: host, code: code)
         default:
             BeamLog.warn("Pair tap ignored; client.status=\(String(describing: client.status))", tag: "viewer")
         }
@@ -74,25 +77,27 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // Kick UDP once we know the udpPort
+    // Start UDP video as soon as we know the port (works even if the sheet isn’t showing)
     func maybeStartMedia() {
         guard case .paired(_, let maybePort) = client.status, let udpPort = maybePort else { return }
         guard let sel = selectedHost else { return }
 
-        // 1) Prefer resolved IPv4 endpoint from the browser
+        // Prefer the browser’s resolved endpoint
         let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
         if let pref = updated.preferredEndpoint, case let .hostPort(host: h, port: _) = pref {
-            media.connect(toHost: h, port: udpPort); return
+            media.connect(toHost: h, port: udpPort)
+            return
         }
-
-        // 2) Fall back to the control link’s resolved host
-        if let h = client.udpHostCandidate() { media.connect(toHost: h, port: udpPort); return }
-
-        // 3) Last resort: original endpoint if it was host:port
+        // Fallback to the control link’s resolved host
+        if let h = client.udpHostCandidate() {
+            media.connect(toHost: h, port: udpPort)
+            return
+        }
+        // Last resort: the original host:port, if applicable
         if case let .hostPort(host: h, port: _) = updated.endpoint {
-            media.connect(toHost: h, port: udpPort); return
+            media.connect(toHost: h, port: udpPort)
+            return
         }
-
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
     }
 }
@@ -100,6 +105,7 @@ final class ViewerViewModel: ObservableObject {
 struct ViewerRootView: View {
     @StateObject private var model = ViewerViewModel()
     @State private var showLogs = false
+    @State private var autoDismissedOnFirstFrame = false
 
     var body: some View {
         NavigationStack {
@@ -153,19 +159,20 @@ struct ViewerRootView: View {
                     .frame(maxHeight: 320)
                 }
 
-                // Always-on preview if receiving frames
+                // Always-on live preview (updates as lastImage changes)
                 if let cg = model.media.lastImage {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Preview").font(.headline)
                         Image(uiImage: UIImage(cgImage: cg))
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 180)
+                            .frame(maxHeight: 280)
+                            .drawingGroup() // smoother updates for frequent redraws
                         Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
                                     model.media.stats.fps,
                                     model.media.stats.kbps,
                                     model.media.stats.drops))
-                        .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
@@ -178,21 +185,51 @@ struct ViewerRootView: View {
             .navigationTitle("Viewer")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: { Image(systemName: "doc.text.magnifyingglass") }
-                        .lineLimit(1)
+                    Button { showLogs = true } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .lineLimit(1)
                 }
             }
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
-            .sheet(isPresented: $model.showPairSheet) { PairSheet(model: model) }
-            .sheet(isPresented: $model.showAwareSheet) { awarePickSheet() }
-            .sheet(isPresented: $showLogs) { BeamLogView() }
+
+            // When status flips to .paired (or udpPort updates), start media even if sheet is not visible
+            .onChange(of: model.client.status) { _, new in
+                if case .paired = new { model.maybeStartMedia() }
+            }
+
+            // Auto-dismiss the Pair sheet once the first frame arrives so the preview is visible
+            .onChange(of: model.media.lastImage) { _, img in
+                if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
+                    autoDismissedOnFirstFrame = true
+                    model.showPairSheet = false
+                }
+            }
+
+            // Pairing UI
+            .sheet(isPresented: $model.showPairSheet) {
+                PairSheet(model: model)
+                    .presentationDetents([.fraction(0.35), .medium])
+            }
+
+            // Wi-Fi Aware picker
+            .sheet(isPresented: $model.showAwareSheet) {
+                awarePickSheet()
+            }
+
+            // Logs
+            .sheet(isPresented: $showLogs) {
+                BeamLogView()
+            }
         }
     }
 }
 
+// MARK: - Helpers & subviews
 private extension ViewerRootView {
-    @ViewBuilder func awarePickButton() -> some View {
+    @ViewBuilder
+    func awarePickButton() -> some View {
         Button {
             model.showAwareSheet = true
         } label: {
@@ -204,13 +241,13 @@ private extension ViewerRootView {
         .buttonStyle(.bordered)
     }
 
-    @ViewBuilder func awarePickSheet() -> some View {
+    @ViewBuilder
+    func awarePickSheet() -> some View {
         #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
             let provider = WASubscriberBrowser.wifiAware(
-                .connecting(to: devices, from: service),
-                active: nil
+                .connecting(to: devices, from: service), active: nil
             )
             DevicePicker(
                 provider,
@@ -251,6 +288,7 @@ private extension ViewerRootView {
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
     @State private var firedSuccessHaptic = false
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -261,6 +299,7 @@ private struct PairSheet: View {
                         .multilineTextAlignment(.center)
                         .lineLimit(2).minimumScaleFactor(0.8)
                 }
+
                 Text("Your code").font(.caption).foregroundStyle(.secondary)
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
@@ -290,21 +329,21 @@ private struct PairSheet: View {
                     if let u = udp {
                         Text("Media UDP port: \(u)")
                             .font(.caption).foregroundStyle(.secondary)
+                    }
 
-                        if let cg = model.media.lastImage {
-                            Image(uiImage: UIImage(cgImage: cg))
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxHeight: 180)
-                            Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
-                                        model.media.stats.fps,
-                                        model.media.stats.kbps,
-                                        model.media.stats.drops))
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            Text("Waiting for video…")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                    if let cg = model.media.lastImage {
+                        Image(uiImage: UIImage(cgImage: cg))
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: 160)
+                        Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
+                                    model.media.stats.fps,
+                                    model.media.stats.kbps,
+                                    model.media.stats.drops))
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("Waiting for video…")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
 
                 case .failed(let reason):
@@ -313,9 +352,11 @@ private struct PairSheet: View {
                 }
 
                 Spacer()
+
                 HStack {
                     Button("Cancel") { model.cancelPairing() }
                         .buttonStyle(.bordered)
+
                     if case .paired = model.client.status {
                         Button("Done") { model.showPairSheet = false }
                             .buttonStyle(.borderedProminent)
@@ -328,18 +369,22 @@ private struct PairSheet: View {
             }
             .padding()
             .navigationTitle("Pair")
-            .presentationDetents([.medium])
+            .presentationDetents([.fraction(0.35), .medium])
             .onChange(of: model.client.status) { _, new in
                 if case .paired = new, !firedSuccessHaptic {
                     firedSuccessHaptic = true
                     let gen = UINotificationFeedbackGenerator()
                     gen.notificationOccurred(.success)
                 }
-                if case .paired = new { model.maybeStartMedia() }
             }
-            .onAppear { model.maybeStartMedia() }
+            .onAppear {
+                // Still call in case the pairing completed before the sheet appeared.
+                model.maybeStartMedia()
+            }
         }
     }
 }
 
-#Preview { ViewerRootView() }
+#Preview {
+    ViewerRootView()
+}
