@@ -177,7 +177,9 @@ public final class MediaUDP: @unchecked Sendable {
 
     private func forwardToActivePeer(_ data: Data) {
         guard let c = connForActivePeer() else { return }
-        c.send(content: data, completion: .contentProcessed { _ in })
+        c.send(content: data, completion: .contentProcessed { _ in
+            BeamLog.debug("UDP fwd \(data.count) bytes → \(self.activeKey ?? "?")", tag: "host")
+        })
     }
 
     private func adoptActivePeer(_ key: String, sawBytes: Int? = nil) {

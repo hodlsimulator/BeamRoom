@@ -28,17 +28,24 @@ final class H264Encoder: @unchecked Sendable {
     private var prepared = false
 
     private let encodeQueue = DispatchQueue(label: "beam.upload2.h264.encoder", qos: .userInitiated)
+    private let queueKey = DispatchSpecificKey<UInt8>()
+
     private var pending: [(EncodedFrame) -> Void] = []
     private let pendingLock = NSLock()
 
+    private var forceKeyframeNext = false
+
+    init() {
+        encodeQueue.setSpecific(key: queueKey, value: 1)
+    }
+
+    // Public API
+
     func stop() {
-        encodeQueue.sync {
-            if let s = session {
-                VTCompressionSessionInvalidate(s)
-                session = nil
-            }
-            prepared = false
-            pending.removeAll()
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            stopLocked()
+        } else {
+            encodeQueue.sync { self.stopLocked() }
         }
     }
 
@@ -50,9 +57,12 @@ final class H264Encoder: @unchecked Sendable {
 
         encodeQueue.async { [self] in
             if session == nil || width != w || height != h {
-                makeSession(width: w, height: h)
+                makeSessionLocked(width: w, height: h)
+                forceKeyframeNext = true
             }
+
             guard let sess = session else { return }
+
             if !prepared {
                 VTCompressionSessionPrepareToEncodeFrames(sess)
                 prepared = true
@@ -63,23 +73,43 @@ final class H264Encoder: @unchecked Sendable {
             pendingLock.unlock()
 
             var flags = VTEncodeInfoFlags()
+            var frameProps: CFDictionary?
+            if forceKeyframeNext {
+                frameProps = [kVTEncodeFrameOptionKey_ForceKeyFrame as String: true] as CFDictionary
+                forceKeyframeNext = false
+            }
+
             let status = VTCompressionSessionEncodeFrame(
                 sess,
                 imageBuffer: pb,
                 presentationTimeStamp: pts,
                 duration: .invalid,
-                frameProperties: nil,
+                frameProperties: frameProps,
                 sourceFrameRefcon: nil,
                 infoFlagsOut: &flags
             )
+
             if status != noErr {
                 popAndFail()
             }
         }
     }
 
-    private func makeSession(width: Int, height: Int) {
-        stop()
+    // MARK: - Internals (encodeQueue only)
+
+    private func stopLocked() {
+        if let s = session {
+            VTCompressionSessionInvalidate(s)
+            session = nil
+        }
+        prepared = false
+        pending.removeAll()
+    }
+
+    private func makeSessionLocked(width: Int, height: Int) {
+        precondition(DispatchQueue.getSpecific(key: queueKey) != nil, "must be on encodeQueue")
+        stopLocked()
+
         self.width = width
         self.height = height
 
@@ -98,6 +128,7 @@ final class H264Encoder: @unchecked Sendable {
             refcon: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
             compressionSessionOut: &s
         )
+
         guard let sess = s else { return }
 
         VTSessionSetProperty(sess, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
@@ -121,29 +152,33 @@ final class H264Encoder: @unchecked Sendable {
     }
 
     func onCompressed(sample: CMSampleBuffer) {
-        // Keyframe?
         let notSync = (CMGetAttachment(sample, key: kCMSampleAttachmentKey_NotSync, attachmentModeOut: nil) as? NSNumber)?.boolValue ?? false
         let isKeyframe = !notSync
 
-        // Param sets (SPS/PPS) on keyframes
-        var ps: H264Wire.ParamSets? = nil
+        var paramSets: H264Wire.ParamSets? = nil
         if isKeyframe, let f = CMSampleBufferGetFormatDescription(sample) {
-            var count: Int = 0
+            var count = 0
             var naluLen: Int32 = 0
-            let _ = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                f, parameterSetIndex: 0,
-                parameterSetPointerOut: nil, parameterSetSizeOut: nil,
-                parameterSetCountOut: &count, nalUnitHeaderLengthOut: &naluLen
+            _ = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                f,
+                parameterSetIndex: 0,
+                parameterSetPointerOut: nil,
+                parameterSetSizeOut: nil,
+                parameterSetCountOut: &count,
+                nalUnitHeaderLengthOut: &naluLen
             )
             var spsList: [Data] = []
             var ppsList: [Data] = []
-            for i in 0..<max(count, 2) {
-                var p: UnsafePointer<UInt8>? = nil
+            for i in 0..<count {
+                var p: UnsafePointer<UInt8>?
                 var sz: Int = 0
                 let st = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                    f, parameterSetIndex: i,
-                    parameterSetPointerOut: &p, parameterSetSizeOut: &sz,
-                    parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
+                    f,
+                    parameterSetIndex: i,
+                    parameterSetPointerOut: &p,
+                    parameterSetSizeOut: &sz,
+                    parameterSetCountOut: nil,
+                    nalUnitHeaderLengthOut: nil
                 )
                 if st == noErr, let pp = p, sz > 0 {
                     let d = Data(bytes: pp, count: sz)
@@ -151,20 +186,23 @@ final class H264Encoder: @unchecked Sendable {
                 }
             }
             if !spsList.isEmpty && !ppsList.isEmpty {
-                ps = H264Wire.ParamSets(sps: spsList, pps: ppsList)
+                paramSets = H264Wire.ParamSets(sps: spsList, pps: ppsList)
             }
         }
 
-        // AVCC payload
-        guard let bb = CMSampleBufferGetDataBuffer(sample) else { popAndFail(); return }
+        guard let bb = CMSampleBufferGetDataBuffer(sample) else {
+            popAndFail(); return
+        }
         var lengthAtOffset = 0
         var totalLength = 0
         var dataPtr: UnsafeMutablePointer<Int8>?
         let st = CMBlockBufferGetDataPointer(bb, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset, totalLengthOut: &totalLength, dataPointerOut: &dataPtr)
-        guard st == noErr, let p = dataPtr, totalLength > 0 else { popAndFail(); return }
+        guard st == noErr, let p = dataPtr, totalLength > 0 else {
+            popAndFail(); return
+        }
 
         let avcc = Data(bytes: p, count: totalLength)
-        let frame = EncodedFrame(avcc: avcc, isKeyframe: isKeyframe, paramSets: ps, width: width, height: height)
+        let frame = EncodedFrame(avcc: avcc, isKeyframe: isKeyframe, paramSets: paramSets, width: width, height: height)
 
         pendingLock.lock()
         let cb = pending.isEmpty ? nil : pending.removeFirst()
@@ -173,7 +211,8 @@ final class H264Encoder: @unchecked Sendable {
     }
 }
 
-// VT callback
+// MARK: - VT callback
+
 private func vtOutputCallback(
     outputCallbackRefCon: UnsafeMutableRawPointer?,
     sourceFrameRefCon: UnsafeMutableRawPointer?,
@@ -181,12 +220,10 @@ private func vtOutputCallback(
     infoFlags: VTEncodeInfoFlags,
     sampleBuffer: CMSampleBuffer?
 ) {
+    guard let me = outputCallbackRefCon.map({ Unmanaged<H264Encoder>.fromOpaque($0).takeUnretainedValue() }) else { return }
     guard status == noErr, let sb = sampleBuffer else {
-        if let me = outputCallbackRefCon.map({ Unmanaged<H264Encoder>.fromOpaque($0).takeUnretainedValue() }) {
-            me.stop()
-        }
+        me.stop()
         return
     }
-    let me = Unmanaged<H264Encoder>.fromOpaque(outputCallbackRefCon!).takeUnretainedValue()
     me.onCompressed(sample: sb)
 }
