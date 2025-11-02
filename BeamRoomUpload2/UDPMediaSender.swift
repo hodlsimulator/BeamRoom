@@ -114,6 +114,7 @@ actor UDPMediaSender {
 
         let params = NWParameters.udp
         params.includePeerToPeer = false
+        params.requiredInterfaceType = .loopback   // keep uplink on lo0
 
         let c = NWConnection(host: host, port: nwPort, using: params)
         conn = c

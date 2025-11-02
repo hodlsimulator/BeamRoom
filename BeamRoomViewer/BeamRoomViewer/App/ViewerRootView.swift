@@ -51,7 +51,7 @@ final class ViewerViewModel: ObservableObject {
         code = BeamControlClient.randomCode()
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
         showPairSheet = true
-        pair() // ← start control connection immediately
+        pair() // start control connection immediately
     }
 
     // Connect when the user taps “Pair”
@@ -78,8 +78,12 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // Start UDP video as soon as we know the port (works even if the sheet isn’t showing)
+    // Start UDP video only when Broadcast is ON and we know the port.
     func maybeStartMedia() {
+        guard client.broadcastOn else {
+            BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
+            return
+        }
         guard case .paired(_, let maybePort) = client.status, let udpPort = maybePort else { return }
         guard let sel = selectedHost else { return }
 
@@ -168,7 +172,7 @@ struct ViewerRootView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxHeight: 280)
-                            .drawingGroup() // smoother updates for frequent redraws
+                            .drawingGroup() // smoother frequent redraws
                         Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
                                     model.media.stats.fps,
                                     model.media.stats.kbps,
@@ -195,12 +199,17 @@ struct ViewerRootView: View {
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
 
-            // When status flips to .paired (or udpPort updates), start media even if sheet is not visible
+            // When paired, we may or may not have Broadcast ON yet; gate by broadcastOn.
             .onChange(of: model.client.status) { _, new in
                 if case .paired = new { model.maybeStartMedia() }
             }
 
-            // Auto-dismiss the Pair sheet once the first frame arrives so the preview is visible
+            // As soon as Host flips Broadcast → ON, start UDP immediately.
+            .onChange(of: model.client.broadcastOn) { _, on in
+                if on { model.maybeStartMedia() }
+            }
+
+            // Auto-dismiss Pair sheet once the first frame arrives so preview is visible
             .onChange(of: model.media.lastImage) { _, img in
                 if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
@@ -379,7 +388,7 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                // Still call in case the pairing completed before the sheet appeared.
+                // If we’re already paired and Broadcast is ON, start media.
                 model.maybeStartMedia()
             }
         }
