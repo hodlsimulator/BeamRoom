@@ -27,7 +27,7 @@ final class ViewerViewModel: ObservableObject {
 
     let browser = BeamBrowser()
     let client = BeamControlClient()
-    let media = UDPMediaClient()
+    let media  = UDPMediaClient()
 
     func startDiscovery() {
         do {
@@ -67,6 +67,7 @@ final class ViewerViewModel: ObservableObject {
 
     func cancelPairing() {
         client.disconnect()
+        media.disarmAutoReconnect()
         media.disconnect()
         showPairSheet = false
     }
@@ -91,18 +92,24 @@ final class ViewerViewModel: ObservableObject {
         let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
         if let pref = updated.preferredEndpoint, case let .hostPort(host: h, port: _) = pref {
             media.connect(toHost: h, port: udpPort)
+            media.armAutoReconnect()
             return
         }
+
         // Fallback to the control link’s resolved host
         if let h = client.udpHostCandidate() {
             media.connect(toHost: h, port: udpPort)
+            media.armAutoReconnect()
             return
         }
+
         // Last resort: the original host:port, if applicable
         if case let .hostPort(host: h, port: _) = updated.endpoint {
             media.connect(toHost: h, port: udpPort)
+            media.armAutoReconnect()
             return
         }
+
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
     }
 }
@@ -114,79 +121,93 @@ struct ViewerRootView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Text("BeamRoom — Viewer")
-                    .font(.largeTitle).bold()
-                    .multilineTextAlignment(.center)
+            ZStack {
+                Color(.systemBackground).ignoresSafeArea()
 
-                awarePickButton()
+                VStack(spacing: 12) {
+                    Text("BeamRoom — Viewer")
+                        .font(.largeTitle).bold()
+                        .multilineTextAlignment(.center)
 
-                if model.showPermHint && model.browser.hosts.isEmpty {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                        Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
-                            .font(.footnote)
-                            .lineLimit(2)
+                    awarePickButton()
+
+                    if model.showPermHint && model.browser.hosts.isEmpty {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
+                                .font(.footnote)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.9)
+                            Spacer(minLength: 6)
+                            Button("Open Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .lineLimit(1)
                             .minimumScaleFactor(0.9)
-                        Spacer(minLength: 6)
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
+                        }
+                        .padding(10)
+                        .background(.yellow.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    if model.browser.hosts.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("Discovering nearby Hosts…").font(.headline)
+                            ProgressView()
+                        }
+                    } else {
+                        List(model.browser.hosts) { host in
+                            Button { model.pick(host) } label: {
+                                HStack {
+                                    Image(systemName: "dot.radiowaves.left.and.right")
+                                    Text(host.name)
+                                        .lineLimit(1).minimumScaleFactor(0.9)
+                                    Spacer()
+                                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                                }
                             }
                         }
-                        .buttonStyle(.bordered)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
+                        .listStyle(.insetGrouped)
+                        .frame(maxHeight: 220)
                     }
-                    .padding(10)
-                    .background(.yellow.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
 
-                if model.browser.hosts.isEmpty {
-                    VStack(spacing: 8) {
-                        Text("Discovering nearby Hosts…").font(.headline)
-                        ProgressView()
-                    }
-                } else {
-                    List(model.browser.hosts) { host in
-                        Button { model.pick(host) } label: {
-                            HStack {
-                                Image(systemName: "dot.radiowaves.left.and.right")
-                                Text(host.name)
-                                    .lineLimit(1).minimumScaleFactor(0.9)
-                                Spacer()
-                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    // Full-screen(ish) live preview
+                    GeometryReader { proxy in
+                        if let cg = model.media.lastImage {
+                            Image(uiImage: UIImage(cgImage: cg))
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .clipped()
+                                .drawingGroup() // smoother frequent redraws
+                        } else {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.secondary.opacity(0.08))
+                                VStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("Waiting for video…").foregroundStyle(.secondary)
+                                }
                             }
+                            .frame(width: proxy.size.width, height: proxy.size.height)
                         }
                     }
-                    .listStyle(.insetGrouped)
-                    .frame(maxHeight: 320)
-                }
+                    .frame(maxHeight: .infinity)
+                    .ignoresSafeArea(edges: .bottom)
 
-                // Always-on live preview (updates as lastImage changes)
-                if let cg = model.media.lastImage {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Preview").font(.headline)
-                        Image(uiImage: UIImage(cgImage: cg))
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 280)
-                            .drawingGroup() // smoother frequent redraws
-                        Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
-                                    model.media.stats.fps,
-                                    model.media.stats.kbps,
-                                    model.media.stats.drops))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 12)
-                Text(BeamCore.hello())
+                    // Tiny stats footer
+                    Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
+                                model.media.stats.fps,
+                                model.media.stats.kbps,
+                                model.media.stats.drops))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                }
+                .padding()
             }
-            .padding()
             .navigationTitle("Viewer")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -209,7 +230,7 @@ struct ViewerRootView: View {
                 if on { model.maybeStartMedia() }
             }
 
-            // Auto-dismiss Pair sheet once the first frame arrives so preview is visible
+            // Auto-dismiss Pair sheet once the first frame arrives so the preview is visible
             .onChange(of: model.media.lastImage) { _, img in
                 if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
@@ -395,6 +416,4 @@ private struct PairSheet: View {
     }
 }
 
-#Preview {
-    ViewerRootView()
-}
+#Preview { ViewerRootView() }
