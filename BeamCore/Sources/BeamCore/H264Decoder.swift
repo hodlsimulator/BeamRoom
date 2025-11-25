@@ -210,8 +210,13 @@ public final class H264Decoder {
                                        sampleBufferOut: &sample)
         guard stS == noErr, let sb = sample else { completion(nil); return }
 
-        // Queue the completion before requesting decode (FIFO).
-        stateQueue.sync { self.pending.append(CompletionBox(completion)) }
+        stateQueue.sync {
+            // Keep the queue short: drop oldest if we’re behind.
+            if self.pending.count >= 2 {
+                _ = self.pending.removeFirst()
+            }
+            self.pending.append(CompletionBox(completion))
+        }
 
         var outFlags = VTDecodeInfoFlags()
         let flags: VTDecodeFrameFlags = []

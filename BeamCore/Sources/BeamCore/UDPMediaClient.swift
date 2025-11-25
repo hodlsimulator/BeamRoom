@@ -214,61 +214,18 @@ public final class UDPMediaClient: ObservableObject {
     }
 
     private func handleDatagram(_ data: Data) {
-        // M4 video?
-        if H264Wire.parseHeaderBE(data) != nil {
-            if let unit = assembler.ingest(datagram: data) {
-                if stats.frames > 0, unit.seq > stats.lastSeq + 1 {
-                    stats.drops += UInt64(unit.seq - stats.lastSeq - 1)
-                }
-                stats.lastSeq = unit.seq
-                stats.frames &+= 1
-                bytesInWindow += data.count
-                framesInWindow &+= 1
-
-                let now = Date()
-                let elapsed = now.timeIntervalSince(windowStart)
-                if elapsed >= 1.0 {
-                    stats.fps = Double(framesInWindow) / elapsed
-                    stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
-                    windowStart = now; bytesInWindow = 0; framesInWindow = 0
-                    BeamLog.debug(String(format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
-                                         stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
-                }
-
-                let w = unit.width
-                let h = unit.height
-                let s = unit.seq
-
-                decoder.decode(avcc: unit.avccData, paramSets: unit.paramSets) { [weak self] cg in
-                    guard let self else { return }
-                    if let cg {
-                        if !self.sawFirstValidFrame {
-                            self.sawFirstValidFrame = true
-                            BeamLog.info("UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))", tag: "viewer")
-                        }
-                        self.lastImage = cg
-                    }
-                }
-            }
+        // H.264 over UDP (M4) only. Ignore legacy M3 BGRA test frames.
+        guard let unit = assembler.ingest(datagram: data) else {
             return
         }
 
-        // Fallback: M3 BGRA preview
-        guard data.count >= 12 else { shortHeaderCount &+= 1; maybeSummarise(); return }
-        let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).bigEndian }
-        guard magic == 0x424D524D /* 'BMRM' */ else { badMagicCount &+= 1; maybeSummarise(); return }
-        let seq = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
-        let w = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt16.self).bigEndian })
-        let h = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt16.self).bigEndian })
-        let pixelBytes = data.count - 12
-        let expected = w * h * 4
-        guard pixelBytes == expected, expected > 0 else {
-            badSizeCount &+= 1; maybeSummarise(extra: "badSize got=\(pixelBytes) want=\(expected) w=\(w) h=\(h)"); return
+        // Basic loss / throughput stats
+        if stats.frames > 0, unit.seq > stats.lastSeq + 1 {
+            stats.drops += UInt64(unit.seq - stats.lastSeq - 1)
         }
-
-        if stats.frames > 0, seq > stats.lastSeq + 1 { stats.drops += UInt64(seq - stats.lastSeq - 1) }
-        stats.lastSeq = seq
+        stats.lastSeq = unit.seq
         stats.frames &+= 1
+
         bytesInWindow += data.count
         framesInWindow &+= 1
 
@@ -277,27 +234,37 @@ public final class UDPMediaClient: ObservableObject {
         if elapsed >= 1.0 {
             stats.fps = Double(framesInWindow) / elapsed
             stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
-            windowStart = now; bytesInWindow = 0; framesInWindow = 0
-            BeamLog.debug(String(format: "UDP preview rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
-                                 stats.fps, stats.kbps, stats.frames, stats.drops), tag: "viewer")
+            windowStart = now
+            bytesInWindow = 0
+            framesInWindow = 0
+
+            BeamLog.debug(
+                String(
+                    format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
+                    stats.fps, stats.kbps, stats.frames, stats.drops
+                ),
+                tag: "viewer"
+            )
         }
 
-        let pixels = data.subdata(in: 12..<(12 + pixelBytes)) as CFData
-        let provider = CGDataProvider(data: pixels)
-        let cs = CGColorSpaceCreateDeviceRGB()
-        let bmp: CGBitmapInfo = [.byteOrder32Little, CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)]
-        let rowBytes = w * 4
-        if let provider,
-           let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
-                             bytesPerRow: rowBytes, space: cs, bitmapInfo: bmp,
-                             provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) {
-            if !sawFirstValidFrame {
-                sawFirstValidFrame = true
-                BeamLog.info("UDP first valid frame ✓ \(w)x\(h) (seq \(seq))", tag: "viewer")
+        let w = unit.width
+        let h = unit.height
+        let s = unit.seq
+
+        decoder.decode(avcc: unit.avccData, paramSets: unit.paramSets) { [weak self] cg in
+            guard let self else { return }
+            if let cg {
+                if !self.sawFirstValidFrame {
+                    self.sawFirstValidFrame = true
+                    BeamLog.info(
+                        "UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))",
+                        tag: "viewer"
+                    )
+                }
+                self.lastImage = cg
             }
-            lastImage = img
         }
-    }
+    } 
 
     // MARK: Helpers
 

@@ -112,15 +112,11 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     self.udpPeer = peer
-                    // Auto-start/stop the M3 test stream based on peer presence during test mode.
-                    if peer == nil {
-                        if self.isStreaming {
-                            self.stopTestStream()
-                        }
-                    } else {
-                        if BeamConfig.autoAcceptDuringTest && !self.isStreaming {
-                            self.startTestStream()
-                        }
+
+                    // Stop any legacy test stream if the peer vanishes.
+                    // Do NOT auto-start the M3 test stream any more; real video comes from H.264 uplink.
+                    if peer == nil, self.isStreaming {
+                        self.stopTestStream()
                     }
                 }
             }
