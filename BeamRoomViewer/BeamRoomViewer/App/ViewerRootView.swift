@@ -10,9 +10,11 @@ import Combine
 import Network
 import UIKit
 import BeamCore
+
 #if canImport(DeviceDiscoveryUI)
 import DeviceDiscoveryUI
 #endif
+
 #if canImport(WiFiAware)
 import WiFiAware
 #endif
@@ -88,8 +90,10 @@ final class ViewerViewModel: ObservableObject {
 
     var canTapPair: Bool {
         switch client.status {
-        case .idle, .failed: return true
-        default: return false
+        case .idle, .failed:
+            return true
+        default:
+            return false
         }
     }
 
@@ -99,9 +103,12 @@ final class ViewerViewModel: ObservableObject {
             BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
             return
         }
+
         guard case .paired(_, let maybePort) = client.status,
               let udpPort = maybePort,
-              let sel = selectedHost else { return }
+              let sel = selectedHost else {
+            return
+        }
 
         // Prefer the browser’s resolved endpoint
         let updated = browser.hosts.first {
@@ -141,73 +148,42 @@ struct ViewerRootView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemBackground).ignoresSafeArea()
+                Color(.black).ignoresSafeArea()
 
-                VStack(spacing: 12) {
-                    Text("BeamRoom — Viewer")
-                        .font(.largeTitle)
-                        .bold()
-                        .multilineTextAlignment(.center)
+                if let cg = model.media.lastImage {
+                    // Full-screen video mode once we have a frame
+                    Image(uiImage: UIImage(cgImage: cg))
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .ignoresSafeArea()
+                        .drawingGroup()
 
-                    awarePickButton()
-
-                    if model.showPermHint && model.browser.hosts.isEmpty {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
-                                .font(.footnote)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.9)
-                            Spacer(minLength: 6)
-                            Button("Open Settings") {
-                                if let url = URL(string: UIApplication.openSettingsURLString) {
-                                    UIApplication.shared.open(url)
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
-                        }
-                        .padding(10)
-                        .background(.yellow.opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack {
+                        Spacer()
+                        statsFooter()
+                            .padding(.bottom, 16)
                     }
+                } else {
+                    // Discovery / waiting UI before the first frame arrives
+                    VStack(spacing: 12) {
+                        Text("BeamRoom — Viewer")
+                            .font(.largeTitle)
+                            .bold()
+                            .multilineTextAlignment(.center)
 
-                    if model.browser.hosts.isEmpty {
-                        VStack(spacing: 8) {
-                            Text("Discovering nearby Hosts…")
-                                .font(.headline)
-                            ProgressView()
-                        }
-                    } else {
-                        List(model.browser.hosts) { host in
-                            Button { model.pick(host) } label: {
-                                HStack {
-                                    Image(systemName: "dot.radiowaves.left.and.right")
-                                    Text(host.name)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.9)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .listStyle(.insetGrouped)
-                        .frame(maxHeight: 220)
-                    }
+                        awarePickButton()
 
-                    // Full-screen-ish live preview
-                    GeometryReader { proxy in
-                        if let cg = model.media.lastImage {
-                            Image(uiImage: UIImage(cgImage: cg))
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: proxy.size.width,
-                                       height: proxy.size.height)
-                                .clipped()
-                                .drawingGroup()
+                        if model.showPermHint && model.browser.hosts.isEmpty {
+                            permissionHint
+                        }
+
+                        if model.browser.hosts.isEmpty {
+                            discoveringView
                         } else {
+                            hostList
+                        }
+
+                        GeometryReader { proxy in
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color.secondary.opacity(0.08))
@@ -217,53 +193,42 @@ struct ViewerRootView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            .frame(width: proxy.size.width,
-                                   height: proxy.size.height)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
                         }
+                        .frame(maxHeight: .infinity)
                     }
-                    .frame(maxHeight: .infinity)
-                    .ignoresSafeArea(edges: .bottom)
-
-                    // Tiny stats footer
-                    Text(
-                        String(
-                            format: "fps %.1f • %.0f kbps • drops %llu",
-                            model.media.stats.fps,
-                            model.media.stats.kbps,
-                            model.media.stats.drops
-                        )
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .padding()
                 }
-                .padding()
             }
             .navigationTitle("Viewer")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: {
+                    Button {
+                        showLogs = true
+                    } label: {
                         Image(systemName: "doc.text.magnifyingglass")
                     }
                     .lineLimit(1)
                 }
             }
-            .task { model.startDiscovery() }
-            .onDisappear { model.stopDiscovery() }
-
+            .task {
+                model.startDiscovery()
+            }
+            .onDisappear {
+                model.stopDiscovery()
+            }
             // When paired, we may or may not have Broadcast ON yet; gate by broadcastOn
             .onChange(of: model.client.status) { _, new in
                 if case .paired = new {
                     model.maybeStartMedia()
                 }
             }
-
             // As soon as Host flips Broadcast → ON, start UDP immediately
             .onChange(of: model.client.broadcastOn) { _, on in
                 if on {
                     model.maybeStartMedia()
                 }
             }
-
             // Auto-dismiss Pair sheet once the first frame arrives so the preview is visible
             .onChange(of: model.media.lastImage) { _, img in
                 if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
@@ -271,18 +236,15 @@ struct ViewerRootView: View {
                     model.showPairSheet = false
                 }
             }
-
             // Pairing UI
             .sheet(isPresented: $model.showPairSheet) {
                 PairSheet(model: model)
                     .presentationDetents([.fraction(0.35), .medium])
             }
-
             // Wi-Fi Aware picker
             .sheet(isPresented: $model.showAwareSheet) {
                 awarePickSheet()
             }
-
             // Logs
             .sheet(isPresented: $showLogs) {
                 BeamLogView()
@@ -308,6 +270,73 @@ private extension ViewerRootView {
     }
 
     @ViewBuilder
+    var permissionHint: some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
+                .font(.footnote)
+                .lineLimit(2)
+                .minimumScaleFactor(0.9)
+            Spacer(minLength: 6)
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .buttonStyle(.bordered)
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
+        }
+        .padding(10)
+        .background(Color.yellow.opacity(0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    var discoveringView: some View {
+        VStack(spacing: 8) {
+            Text("Discovering nearby Hosts…")
+                .font(.headline)
+            ProgressView()
+        }
+    }
+
+    @ViewBuilder
+    var hostList: some View {
+        List(model.browser.hosts) { host in
+            Button {
+                model.pick(host)
+            } label: {
+                HStack {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                    Text(host.name)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .frame(maxHeight: 220)
+    }
+
+    @ViewBuilder
+    func statsFooter() -> some View {
+        Text(
+            String(
+                format: "fps %.1f • %.0f kbps • drops %llu",
+                model.media.stats.fps,
+                model.media.stats.kbps,
+                model.media.stats.drops
+            )
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
     func awarePickSheet() -> some View {
         #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
@@ -316,19 +345,24 @@ private extension ViewerRootView {
                 .connecting(to: devices, from: service),
                 active: nil
             )
+
             DevicePicker(
                 provider,
                 onSelect: { _ in
                     BeamLog.info("Aware picker selection", tag: "viewer")
                     model.showAwareSheet = false
                 },
-                label: { Text("Pair Viewer") },
+                label: {
+                    Text("Pair Viewer")
+                },
                 fallback: {
                     VStack(spacing: 12) {
                         Text("Wi-Fi Aware not available.")
-                        Button("Close") { model.showAwareSheet = false }
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
+                        Button("Close") {
+                            model.showAwareSheet = false
+                        }
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                     }
                     .padding()
                 }
@@ -336,18 +370,22 @@ private extension ViewerRootView {
         } else {
             VStack(spacing: 12) {
                 Text("Wi-Fi Aware service not available.")
-                Button("Close") { model.showAwareSheet = false }
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                Button("Close") {
+                    model.showAwareSheet = false
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
             }
             .padding()
         }
         #else
         VStack(spacing: 12) {
             Text("Wi-Fi Aware UI isn’t available on this build configuration.")
-            Button("Close") { model.showAwareSheet = false }
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
+            Button("Close") {
+                model.showAwareSheet = false
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
         }
         .padding()
         #endif
@@ -377,6 +415,7 @@ private struct PairSheet: View {
                 Text("Your code")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .monospacedDigit()
@@ -397,10 +436,12 @@ private struct PairSheet: View {
                 case .paired(let sid, let udp):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
+
                     Text("Session: \(sid.uuidString)")
                         .font(.footnote)
                         .monospaced()
                         .foregroundStyle(.secondary)
+
                     Label(
                         model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
                         systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
@@ -418,6 +459,7 @@ private struct PairSheet: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxHeight: 160)
+
                         Text(
                             String(
                                 format: "fps %.1f • %.0f kbps • drops %llu",
@@ -473,12 +515,10 @@ private struct PairSheet: View {
             }
             .onAppear {
                 // If we’re already paired and Broadcast is ON, start media.
-                model.maybeStartMedia()
+                if case .paired = model.client.status, model.client.broadcastOn {
+                    model.maybeStartMedia()
+                }
             }
         }
     }
-}
-
-#Preview {
-    ViewerRootView()
 }
