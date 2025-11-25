@@ -4,33 +4,32 @@
 //
 //  Created by . . on 9/21/25.
 //
-//  Test Stream UI removed. Host now focuses on advertising + Broadcast picker.
-//  MediaUDP still runs (for UDP port + peer bridging), but there’s no fake-frame button.
-//
 
 import SwiftUI
 import Combine
 import BeamCore
-import UIKit
-import Network
+import OSLog
 import ReplayKit
 
 @MainActor
 final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
-    @Published var autoAccept: Bool = BeamConfig.autoAcceptDuringTest
+    @Published var autoAccept: Bool
     @Published var broadcastOn: Bool = BeamConfig.isBroadcastOn()
     @Published var sessions: [BeamControlServer.ActiveSession] = []
     @Published var pendingPairs: [BeamControlServer.PendingPair] = []
     @Published var udpPeer: String? = nil
 
     let server: BeamControlServer
-    private var pollTimer: DispatchSourceTimer?
+
     private var cancellables: Set<AnyCancellable> = []
+    private var broadcastPoll: DispatchSourceTimer?
 
     init() {
-        self.server = BeamControlServer(autoAccept: BeamConfig.autoAcceptDuringTest)
+        let auto = BeamConfig.autoAcceptDuringTest
+        self.server = BeamControlServer(autoAccept: auto)
+        self.autoAccept = auto
 
         server.$sessions
             .receive(on: RunLoop.main)
@@ -48,226 +47,237 @@ final class HostViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func toggle() {
+    // MARK: - Public API for the view
+
+    func toggleServer() {
         if started {
-            server.stop()
-            stopBroadcastPoll()
-            started = false
+            stopServer()
         } else {
-            do {
-                try server.start(serviceName: serviceName)
-                startBroadcastPoll()
-                started = true
-            } catch {
-                started = false
-                BeamLog.error("Start error: \(error.localizedDescription)", tag: "host")
-            }
+            startServer()
         }
     }
 
-    func setAutoAccept(_ v: Bool) { server.autoAccept = v }
-    func accept(_ pendingID: UUID) { server.accept(pendingID) }
-    func decline(_ pendingID: UUID) { server.decline(pendingID) }
+    func setAutoAccept(_ value: Bool) {
+        autoAccept = value
+        server.autoAccept = value
+    }
 
-    // MARK: Broadcast poll (App Group flag → UI)
+    func accept(_ pendingID: UUID) {
+        server.accept(pendingID)
+    }
+
+    func decline(_ pendingID: UUID) {
+        server.decline(pendingID)
+    }
+
+    // MARK: - Server lifecycle
+
+    private func startServer() {
+        guard !started else { return }
+
+        do {
+            try server.start(serviceName: serviceName)
+            started = true
+            startBroadcastPoll()
+
+            // If a broadcast is already running when the host starts, begin background audio straight away.
+            if BeamConfig.isBroadcastOn() {
+                BackgroundAudioKeeper.shared.start()
+                broadcastOn = true
+            } else {
+                broadcastOn = false
+            }
+        } catch {
+            BeamLog.error("Failed to start host: \(error.localizedDescription)", tag: "host")
+        }
+    }
+
+    private func stopServer() {
+        guard started else { return }
+
+        server.stop()
+        started = false
+        stopBroadcastPoll()
+        broadcastOn = false
+        BackgroundAudioKeeper.shared.stop()
+    }
+
+    // MARK: - Broadcast polling → drives UI + background audio
+
     private func startBroadcastPoll() {
         stopBroadcastPoll()
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + 1, repeating: 1)
-        t.setEventHandler { [weak self] in
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+
+        timer.setEventHandler { [weak self] in
             guard let self else { return }
             let on = BeamConfig.isBroadcastOn()
+
             Task { @MainActor in
-                if on != self.broadcastOn { self.broadcastOn = on }
+                guard self.started else { return }
+
+                if on != self.broadcastOn {
+                    self.broadcastOn = on
+                    if on {
+                        BackgroundAudioKeeper.shared.start()
+                    } else {
+                        BackgroundAudioKeeper.shared.stop()
+                    }
+                }
             }
         }
-        t.resume()
-        pollTimer = t
+
+        timer.resume()
+        broadcastPoll = timer
     }
 
     private func stopBroadcastPoll() {
-        pollTimer?.cancel(); pollTimer = nil
+        broadcastPoll?.cancel()
+        broadcastPoll = nil
     }
 }
+
+// MARK: - View
 
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
-    @State private var showLogs = false
+    @State private var showingLogs = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Text("BeamRoom — Host")
-                    .font(.largeTitle).bold()
-                    .multilineTextAlignment(.center)
-
-                HStack {
-                    TextField("Service Name", text: $model.serviceName)
-                        .textFieldStyle(.roundedBorder)
-                    Button(model.started ? "Stop" : "Publish") { model.toggle() }
-                        .buttonStyle(.borderedProminent)
-                        .lineLimit(1).minimumScaleFactor(0.9)
-                }
-
-                Toggle("Auto-accept Viewer PINs (testing)", isOn: $model.autoAccept)
-                    .onChange(of: model.autoAccept) { _, new in model.setAutoAccept(new) }
-
-                // Broadcast controls (ReplayKit system picker)
+            List {
+                hostSection
                 broadcastSection
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Circle().frame(width: 10, height: 10)
-                            .foregroundStyle(model.started ? .green : .secondary)
-                        Text(model.started ? "Advertising \(model.serviceName) on \(BeamConfig.controlService)" : "Not advertising")
-                            .font(.callout).foregroundStyle(.secondary)
-                            .lineLimit(2).minimumScaleFactor(0.8)
-                    }
-
-                    if !model.sessions.isEmpty {
-                        Text("Active Sessions").font(.headline)
-                        List(model.sessions) { s in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(s.id.uuidString)
-                                        .font(.footnote).monospaced().lineLimit(1).minimumScaleFactor(0.7)
-                                    Text(s.remoteDescription)
-                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                Spacer()
-                                Text(s.startedAt, style: .time)
-                                    .font(.footnote).foregroundStyle(.secondary)
-                            }
-                        }
-                        .listStyle(.plain).frame(maxHeight: 180)
-                    }
-
-                    Text("Pair Requests").font(.headline)
-                    if model.pendingPairs.isEmpty {
-                        Text("None yet.\nA Viewer will tap your name and send a 4-digit code.")
-                            .font(.callout).foregroundStyle(.secondary)
-                    } else {
-                        List(model.pendingPairs) { p in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Code: \(p.code)")
-                                        .font(.title2).bold().monospaced().lineLimit(1)
-                                    Text("conn#\(p.connID) • \(p.remoteDescription)")
-                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                Spacer()
-                                HStack(spacing: 8) {
-                                    Button("Decline") { model.decline(p.id) }
-                                        .buttonStyle(.bordered)
-                                    Button("Accept") { model.accept(p.id) }
-                                        .buttonStyle(.borderedProminent)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                        .listStyle(.plain).frame(minHeight: 120, maxHeight: 240)
-                    }
-                }
-
-                Spacer(minLength: 12)
-                Text(BeamCore.hello())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                pairingSection
             }
-            .padding()
-            .navigationTitle("Host")
+            .navigationTitle("BeamRoom Host")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showLogs = true } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
+                    Button {
+                        showingLogs = true
+                    } label: {
+                        Image(systemName: "list.bullet.rectangle")
                     }
-                    .lineLimit(1)
+                    .accessibilityLabel("Show logs")
                 }
             }
-            .task {
-                if !model.started { model.toggle() }
-                model.setAutoAccept(model.autoAccept)
+        }
+        .sheet(isPresented: $showingLogs) {
+            NavigationStack {
+                BeamLogView()
+                    .navigationTitle("Logs")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") {
+                                showingLogs = false
+                            }
+                        }
+                    }
             }
-            .sheet(isPresented: $showLogs) { BeamLogView() }
         }
     }
 
-    // MARK: Broadcast UI
-    @ViewBuilder
+    // MARK: - Sections
+
+    private var hostSection: some View {
+        Section("Host") {
+            TextField("Service name", text: $model.serviceName)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+
+            Button {
+                model.toggleServer()
+            } label: {
+                Label(model.started ? "Stop hosting" : "Start hosting",
+                      systemImage: model.started ? "stop.circle.fill" : "play.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+
+            Toggle("Auto‑accept pairing", isOn: Binding(
+                get: { model.autoAccept },
+                set: { model.setAutoAccept($0) }
+            ))
+
+            if let peer = model.udpPeer {
+                Label("UDP peer: \(peer)", systemImage: "dot.radiowaves.left.and.right")
+            } else {
+                Label("UDP peer: none", systemImage: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var broadcastSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Label(model.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
-                      systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
+        Section("Broadcast") {
+            HStack {
+                Text("Status")
+                Spacer()
+                Text(model.broadcastOn ? "ON" : "OFF")
                     .foregroundStyle(model.broadcastOn ? .green : .secondary)
-                    .font(.headline)
+                    .monospacedDigit()
+            }
+
+            HStack {
+                Spacer()
+                BroadcastPicker()
                 Spacer()
             }
+        }
+    }
 
-            // System picker. Make it take width so it can't collapse to 0.
-            BroadcastPicker()
-                .frame(maxWidth: .infinity, minHeight: 44)
-
-            // Fallback button: programmatically taps the hidden picker button.
-            Button(model.broadcastOn ? "Open Broadcast Controls" : "Start Broadcast") {
-                BroadcastPicker.programmaticTap()
+    private var pairingSection: some View {
+        Section("Pairing") {
+            if model.pendingPairs.isEmpty && model.sessions.isEmpty {
+                Text("No active or pending viewers.")
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.bordered)
 
-            HStack(spacing: 6) {
-                Text("Active Viewer UDP peer:").foregroundStyle(.secondary)
-                Text(model.udpPeer ?? "none")
-                    .font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+            ForEach(model.pendingPairs) { pending in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(pending.remoteDescription)
+                        Text("Code \(pending.code)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Decline") {
+                        model.decline(pending.id)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Accept") {
+                        model.accept(pending.id)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+            ForEach(model.sessions) { session in
+                VStack(alignment: .leading) {
+                    Text(session.remoteDescription)
+                    Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
 }
 
-// RPSystemBroadcastPickerView wrapper: auto-detects the Upload extension.
-// Exposes a programmaticTap() fallback to trigger the system UI if the
-// button isn’t visible for any reason.
-private struct BroadcastPicker: UIViewRepresentable {
+// MARK: - Broadcast picker
 
-    private static weak var cachedPicker: RPSystemBroadcastPickerView?
-
-    static func programmaticTap() {
-        guard let picker = cachedPicker else { return }
-        for v in picker.subviews {
-            if let b = v as? UIButton {
-                b.sendActions(for: .touchUpInside)
-                break
-            }
-        }
-    }
-
+struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let v = RPSystemBroadcastPickerView()
-        v.showsMicrophoneButton = false
-        v.preferredExtension = Self.findUploadExtensionBundleID()
-        BroadcastPicker.cachedPicker = v
-        return v
+        let view = RPSystemBroadcastPickerView()
+        view.showsMicrophoneButton = false
+        // If you want to force the specific extension, set preferredExtension here.
+        // view.preferredExtension = "<your.broadcast.extension.bundle.id>"
+        return view
     }
 
-    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
-
-    private static func findUploadExtensionBundleID() -> String? {
-        guard let plugins = Bundle.main.builtInPlugInsURL else { return nil }
-        let fm = FileManager.default
-        guard let it = fm.enumerator(at: plugins, includingPropertiesForKeys: nil) else { return nil }
-        var candidates: [(id: String, name: String)] = []
-        for case let url as URL in it {
-            if url.pathExtension != "appex" { continue }
-            guard
-                let b = Bundle(url: url),
-                let info = b.infoDictionary,
-                let ext = info["NSExtension"] as? [String: Any],
-                let point = ext["NSExtensionPointIdentifier"] as? String,
-                point == "com.apple.broadcast-services-upload",
-                let id = b.bundleIdentifier
-            else { continue }
-            candidates.append((id, url.lastPathComponent.lowercased()))
-        }
-        if let pick = candidates.first(where: { $0.name.contains("upload2") }) { return pick.id }
-        return candidates.first?.id
+    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {
+        // No-op
     }
 }

@@ -155,7 +155,6 @@ struct ViewerRootView: View {
                     Image(uiImage: UIImage(cgImage: cg))
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .ignoresSafeArea()
                         .drawingGroup()
 
                     VStack {
