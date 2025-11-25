@@ -12,7 +12,8 @@ import OSLog
 final class BackgroundAudioKeeper {
     static let shared = BackgroundAudioKeeper()
 
-    private let log = Logger(subsystem: BeamConfig.subsystemHost, category: "bg-audio")
+    private let log = Logger(subsystem: "BeamRoomHost", category: "bg-audio")
+
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var isRunning = false
@@ -31,7 +32,7 @@ final class BackgroundAudioKeeper {
             try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
         } catch {
-            log.error("AVAudioSession setup failed: \(error.localizedDescription, privacy: .public)")
+            log.error("AVAudioSession setup failed: \(error.localizedDescription)")
         }
 
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
@@ -49,7 +50,9 @@ final class BackgroundAudioKeeper {
             let samplesPerChannel = Int(frameCount)
             for channel in 0..<channels {
                 let ptr = channelData[channel]
-                ptr.initialize(repeating: 0, count: samplesPerChannel)
+                for i in 0..<samplesPerChannel {
+                    ptr[i] = 0
+                }
             }
         }
 
@@ -61,7 +64,7 @@ final class BackgroundAudioKeeper {
             isRunning = true
             log.info("Background audio engine started")
         } catch {
-            log.error("Audio engine start failed: \(error.localizedDescription, privacy: .public)")
+            log.error("Audio engine start failed: \(error.localizedDescription)")
         }
     }
 
@@ -77,7 +80,7 @@ final class BackgroundAudioKeeper {
             try AVAudioSession.sharedInstance().setActive(false,
                                                          options: [.notifyOthersOnDeactivation])
         } catch {
-            log.error("AVAudioSession deactivate failed: \(error.localizedDescription, privacy: .public)")
+            log.error("AVAudioSession deactivate failed: \(error.localizedDescription)")
         }
     }
 }
