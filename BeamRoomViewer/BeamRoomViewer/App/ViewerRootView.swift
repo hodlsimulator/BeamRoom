@@ -27,14 +27,28 @@ final class ViewerViewModel: ObservableObject {
 
     let browser = BeamBrowser()
     let client = BeamControlClient()
-    let media  = UDPMediaClient()
+    let media = UDPMediaClient()
+
+    private var cancellables: Set<AnyCancellable> = []
+
+    init() {
+        // Forward media changes into this view model so SwiftUI refreshes
+        media.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+    }
 
     func startDiscovery() {
         do {
             try browser.start()
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if self.browser.hosts.isEmpty { self.showPermHint = true }
+                if self.browser.hosts.isEmpty {
+                    self.showPermHint = true
+                }
             }
         } catch {
             BeamLog.error("Discovery start error: \(error.localizedDescription)", tag: "viewer")
@@ -51,7 +65,7 @@ final class ViewerViewModel: ObservableObject {
         code = BeamControlClient.randomCode()
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
         showPairSheet = true
-        pair() // start control connection immediately
+        pair()
     }
 
     // Connect when the user taps “Pair”
@@ -79,18 +93,23 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // Start UDP video only when Broadcast is ON and we know the port.
+    // Start UDP video only when Broadcast is ON and we know the port
     func maybeStartMedia() {
         guard client.broadcastOn else {
             BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
             return
         }
-        guard case .paired(_, let maybePort) = client.status, let udpPort = maybePort else { return }
-        guard let sel = selectedHost else { return }
+        guard case .paired(_, let maybePort) = client.status,
+              let udpPort = maybePort,
+              let sel = selectedHost else { return }
 
         // Prefer the browser’s resolved endpoint
-        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
-        if let pref = updated.preferredEndpoint, case let .hostPort(host: h, port: _) = pref {
+        let updated = browser.hosts.first {
+            $0.endpoint.debugDescription == sel.endpoint.debugDescription
+        } ?? sel
+
+        if let pref = updated.preferredEndpoint,
+           case let .hostPort(host: h, port: _) = pref {
             media.connect(toHost: h, port: udpPort)
             media.armAutoReconnect()
             return
@@ -126,7 +145,8 @@ struct ViewerRootView: View {
 
                 VStack(spacing: 12) {
                     Text("BeamRoom — Viewer")
-                        .font(.largeTitle).bold()
+                        .font(.largeTitle)
+                        .bold()
                         .multilineTextAlignment(.center)
 
                     awarePickButton()
@@ -155,7 +175,8 @@ struct ViewerRootView: View {
 
                     if model.browser.hosts.isEmpty {
                         VStack(spacing: 8) {
-                            Text("Discovering nearby Hosts…").font(.headline)
+                            Text("Discovering nearby Hosts…")
+                                .font(.headline)
                             ProgressView()
                         }
                     } else {
@@ -164,9 +185,11 @@ struct ViewerRootView: View {
                                 HStack {
                                     Image(systemName: "dot.radiowaves.left.and.right")
                                     Text(host.name)
-                                        .lineLimit(1).minimumScaleFactor(0.9)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.9)
                                     Spacer()
-                                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -174,35 +197,42 @@ struct ViewerRootView: View {
                         .frame(maxHeight: 220)
                     }
 
-                    // Full-screen(ish) live preview
+                    // Full-screen-ish live preview
                     GeometryReader { proxy in
                         if let cg = model.media.lastImage {
                             Image(uiImage: UIImage(cgImage: cg))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .frame(width: proxy.size.width,
+                                       height: proxy.size.height)
                                 .clipped()
-                                .drawingGroup() // smoother frequent redraws
+                                .drawingGroup()
                         } else {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color.secondary.opacity(0.08))
                                 VStack(spacing: 8) {
                                     ProgressView()
-                                    Text("Waiting for video…").foregroundStyle(.secondary)
+                                    Text("Waiting for video…")
+                                        .foregroundStyle(.secondary)
                                 }
                             }
-                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .frame(width: proxy.size.width,
+                                   height: proxy.size.height)
                         }
                     }
                     .frame(maxHeight: .infinity)
                     .ignoresSafeArea(edges: .bottom)
 
                     // Tiny stats footer
-                    Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
-                                model.media.stats.fps,
-                                model.media.stats.kbps,
-                                model.media.stats.drops))
+                    Text(
+                        String(
+                            format: "fps %.1f • %.0f kbps • drops %llu",
+                            model.media.stats.fps,
+                            model.media.stats.kbps,
+                            model.media.stats.drops
+                        )
+                    )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
@@ -220,14 +250,18 @@ struct ViewerRootView: View {
             .task { model.startDiscovery() }
             .onDisappear { model.stopDiscovery() }
 
-            // When paired, we may or may not have Broadcast ON yet; gate by broadcastOn.
+            // When paired, we may or may not have Broadcast ON yet; gate by broadcastOn
             .onChange(of: model.client.status) { _, new in
-                if case .paired = new { model.maybeStartMedia() }
+                if case .paired = new {
+                    model.maybeStartMedia()
+                }
             }
 
-            // As soon as Host flips Broadcast → ON, start UDP immediately.
+            // As soon as Host flips Broadcast → ON, start UDP immediately
             .onChange(of: model.client.broadcastOn) { _, on in
-                if on { model.maybeStartMedia() }
+                if on {
+                    model.maybeStartMedia()
+                }
             }
 
             // Auto-dismiss Pair sheet once the first frame arrives so the preview is visible
@@ -258,6 +292,7 @@ struct ViewerRootView: View {
 }
 
 // MARK: - Helpers & subviews
+
 private extension ViewerRootView {
     @ViewBuilder
     func awarePickButton() -> some View {
@@ -278,7 +313,8 @@ private extension ViewerRootView {
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
             let provider = WASubscriberBrowser.wifiAware(
-                .connecting(to: devices, from: service), active: nil
+                .connecting(to: devices, from: service),
+                active: nil
             )
             DevicePicker(
                 provider,
@@ -291,7 +327,8 @@ private extension ViewerRootView {
                     VStack(spacing: 12) {
                         Text("Wi-Fi Aware not available.")
                         Button("Close") { model.showAwareSheet = false }
-                            .lineLimit(1).minimumScaleFactor(0.9)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .padding()
                 }
@@ -300,7 +337,8 @@ private extension ViewerRootView {
             VStack(spacing: 12) {
                 Text("Wi-Fi Aware service not available.")
                 Button("Close") { model.showAwareSheet = false }
-                    .lineLimit(1).minimumScaleFactor(0.9)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
             .padding()
         }
@@ -308,7 +346,8 @@ private extension ViewerRootView {
         VStack(spacing: 12) {
             Text("Wi-Fi Aware UI isn’t available on this build configuration.")
             Button("Close") { model.showAwareSheet = false }
-                .lineLimit(1).minimumScaleFactor(0.9)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
         }
         .padding()
         #endif
@@ -316,6 +355,7 @@ private extension ViewerRootView {
 }
 
 // MARK: - Pair Sheet
+
 private struct PairSheet: View {
     @ObservedObject var model: ViewerViewModel
     @State private var firedSuccessHaptic = false
@@ -324,21 +364,27 @@ private struct PairSheet: View {
         NavigationStack {
             VStack(spacing: 16) {
                 if let host = model.selectedHost {
-                    Text("Pairing with").font(.headline)
+                    Text("Pairing with")
+                        .font(.headline)
                     Text(host.name)
-                        .font(.title3).bold()
+                        .font(.title3)
+                        .bold()
                         .multilineTextAlignment(.center)
-                        .lineLimit(2).minimumScaleFactor(0.8)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                 }
 
-                Text("Your code").font(.caption).foregroundStyle(.secondary)
+                Text("Your code")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(model.code)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .monospacedDigit()
 
                 switch model.client.status {
                 case .idle:
-                    Text("Ready to pair").foregroundStyle(.secondary)
+                    Text("Ready to pair")
+                        .foregroundStyle(.secondary)
 
                 case .connecting(let hostName, _):
                     Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
@@ -352,14 +398,19 @@ private struct PairSheet: View {
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
                     Text("Session: \(sid.uuidString)")
-                        .font(.footnote).monospaced().foregroundStyle(.secondary)
-                    Label(model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
-                          systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
-                        .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
+                        .font(.footnote)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
+                    Label(
+                        model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
+                        systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
+                    )
+                    .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
 
                     if let u = udp {
                         Text("Media UDP port: \(u)")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     if let cg = model.media.lastImage {
@@ -367,14 +418,20 @@ private struct PairSheet: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxHeight: 160)
-                        Text(String(format: "fps %.1f • %.0f kbps • drops %llu",
-                                    model.media.stats.fps,
-                                    model.media.stats.kbps,
-                                    model.media.stats.drops))
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text(
+                            String(
+                                format: "fps %.1f • %.0f kbps • drops %llu",
+                                model.media.stats.fps,
+                                model.media.stats.kbps,
+                                model.media.stats.drops
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     } else {
                         Text("Waiting for video…")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                 case .failed(let reason):
@@ -385,16 +442,22 @@ private struct PairSheet: View {
                 Spacer()
 
                 HStack {
-                    Button("Cancel") { model.cancelPairing() }
-                        .buttonStyle(.bordered)
+                    Button("Cancel") {
+                        model.cancelPairing()
+                    }
+                    .buttonStyle(.bordered)
 
                     if case .paired = model.client.status {
-                        Button("Done") { model.showPairSheet = false }
-                            .buttonStyle(.borderedProminent)
+                        Button("Done") {
+                            model.showPairSheet = false
+                        }
+                        .buttonStyle(.borderedProminent)
                     } else {
-                        Button("Pair") { model.pair() }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!model.canTapPair)
+                        Button("Pair") {
+                            model.pair()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!model.canTapPair)
                     }
                 }
             }
@@ -416,4 +479,6 @@ private struct PairSheet: View {
     }
 }
 
-#Preview { ViewerRootView() }
+#Preview {
+    ViewerRootView()
+}
