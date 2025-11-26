@@ -23,27 +23,29 @@
     <key>CFBundlePackageType</key>
     <string>XPC!</string>
 
-    <!-- Marketing version / build number (from target settings) -->
+    <!-- Marketing version (from the target's Version field, e.g. 0.9.5) -->
     <key>CFBundleShortVersionString</key>
     <string>$(MARKETING_VERSION)</string>
 
+    <!-- Build number (CURRENT_PROJECT_VERSION) -->
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <key>MinimumOSVersion</key>
+    <string>26.0</string>
 
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>
         <string>com.apple.broadcast-services-upload</string>
 
-        <!-- SampleHandler.swift in this target -->
+        <!-- SampleHandler in the Upload2 target -->
         <key>NSExtensionPrincipalClass</key>
         <string>SampleHandler</string>
 
-        <key>NSExtensionAttributes</key>
-        <dict>
-            <key>RPBroadcastProcessMode</key>
-            <string>RPBroadcastProcessModeSampleBuffer</string>
-        </dict>
+        <!-- IMPORTANT: RPBroadcastProcessMode is a direct child of NSExtension -->
+        <key>RPBroadcastProcessMode</key>
+        <string>RPBroadcastProcessModeSampleBuffer</string>
     </dict>
 </dict>
 </plist>

@@ -2,38 +2,50 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDevelopmentRegion</key><string>en-GB</string>
-  <key>CFBundleDisplayName</key><string>BeamRoom Upload</string>
-  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-  <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
-  <key>CFBundlePackageType</key><string>XPC!</string>
-  <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
-  <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
-  <key>MinimumOSVersion</key><string>26.0</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en-GB</string>
 
-  <key>NSExtension</key>
-  <dict>
-    <key>NSExtensionPointIdentifier</key>
-    <string>com.apple.broadcast-services-upload</string>
+    <key>CFBundleDisplayName</key>
+    <string>BeamRoom Upload</string>
 
-    <key>NSExtensionPrincipalClass</key>
-    <string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
 
-    <key>NSExtensionAttributes</key>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+
+    <!-- Marketing version (from target settings) -->
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+
+    <!-- Build number -->
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <key>MinimumOSVersion</key>
+    <string>26.0</string>
+
+    <key>NSExtension</key>
     <dict>
-      <key>RPBroadcastProcessMode</key>
-      <string>RPBroadcastProcessModeSampleBuffer</string>
-    </dict>
-  </dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.broadcast-services-upload</string>
 
-  <!-- (Optional, harmless) If you want: put Local Network prompt here.
-       If you suspect it confuses ASC, you can remove it for the upload
-       and add it back next build. -->
-  <!--
-  <key>NSLocalNetworkUsageDescription</key>
-  <string>BeamRoom needs local network access to stream video to nearby devices.</string>
-  -->
+        <!-- Default principal class from the template -->
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+
+        <!-- Again: RPBroadcastProcessMode is a direct child here -->
+        <key>RPBroadcastProcessMode</key>
+        <string>RPBroadcastProcessModeSampleBuffer</string>
+    </dict>
 </dict>
 </plist>
