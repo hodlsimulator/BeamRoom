@@ -11,6 +11,8 @@ import BeamCore
 import OSLog
 import ReplayKit
 
+// MARK: - View model
+
 @MainActor
 final class HostViewModel: ObservableObject {
     @Published var serviceName: String = UIDevice.current.name
@@ -33,17 +35,23 @@ final class HostViewModel: ObservableObject {
 
         server.$sessions
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.sessions = $0 }
+            .sink { [weak self] in
+                self?.sessions = $0
+            }
             .store(in: &cancellables)
 
         server.$pendingPairs
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.pendingPairs = $0 }
+            .sink { [weak self] in
+                self?.pendingPairs = $0
+            }
             .store(in: &cancellables)
 
         server.$udpPeer
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.udpPeer = $0 }
+            .sink { [weak self] in
+                self?.udpPeer = $0
+            }
             .store(in: &cancellables)
     }
 
@@ -80,7 +88,6 @@ final class HostViewModel: ObservableObject {
             started = true
             startBroadcastPoll()
 
-            // If a broadcast is already running when the host starts, begin background audio straight away.
             if BeamConfig.isBroadcastOn() {
                 BackgroundAudioKeeper.shared.start()
                 broadcastOn = true
@@ -119,6 +126,7 @@ final class HostViewModel: ObservableObject {
 
                 if on != self.broadcastOn {
                     self.broadcastOn = on
+
                     if on {
                         BackgroundAudioKeeper.shared.start()
                     } else {
@@ -181,7 +189,7 @@ struct HostRootView: View {
     // MARK: - Sections
 
     private var hostSection: some View {
-        Section("Host") {
+        Section {
             TextField("Service name", text: $model.serviceName)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
@@ -189,15 +197,20 @@ struct HostRootView: View {
             Button {
                 model.toggleServer()
             } label: {
-                Label(model.started ? "Stop hosting" : "Start hosting",
-                      systemImage: model.started ? "stop.circle.fill" : "play.circle.fill")
+                Label(
+                    model.started ? "Stop hosting" : "Start hosting",
+                    systemImage: model.started ? "stop.circle.fill" : "play.circle.fill"
+                )
             }
             .buttonStyle(.borderedProminent)
 
-            Toggle("Auto‑accept pairing", isOn: Binding(
-                get: { model.autoAccept },
-                set: { model.setAutoAccept($0) }
-            ))
+            Toggle(
+                "Auto-accept pairing",
+                isOn: Binding(
+                    get: { model.autoAccept },
+                    set: { model.setAutoAccept($0) }
+                )
+            )
 
             if let peer = model.udpPeer {
                 Label("UDP peer: \(peer)", systemImage: "dot.radiowaves.left.and.right")
@@ -205,29 +218,56 @@ struct HostRootView: View {
                 Label("UDP peer: none", systemImage: "dot.radiowaves.left.and.right")
                     .foregroundStyle(.secondary)
             }
+        } header: {
+            Text("Host")
         }
     }
 
     private var broadcastSection: some View {
-        Section("Broadcast") {
-            HStack {
-                Text("Status")
-                Spacer()
-                Text(model.broadcastOn ? "ON" : "OFF")
-                    .foregroundStyle(model.broadcastOn ? .green : .secondary)
-                    .monospacedDigit()
-            }
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Text(model.broadcastOn ? "ON" : "OFF")
+                        .foregroundStyle(model.broadcastOn ? .green : .secondary)
+                        .monospacedDigit()
+                        .fontWeight(.semibold)
+                }
 
-            HStack {
-                Spacer()
-                BroadcastPicker()
-                Spacer()
+                Text(
+                    model.broadcastOn
+                    ? "Screen sharing is live. You can switch to any app and this host will stay awake in the background while broadcasting."
+                    : "To share the screen, start a ReplayKit broadcast. Use the button below, or long-press Screen Recording in Control Centre and choose BeamRoom."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Spacer()
+                    VStack(spacing: 4) {
+                        BroadcastPicker()
+                            .frame(width: 220, height: 52)
+                            .accessibilityLabel("Start or stop screen broadcast")
+
+                        Text("Tap to start / stop")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
             }
+        } header: {
+            Text("Screen broadcast")
+        } footer: {
+            Text("Tip: If the button above does not appear, open Control Centre, long-press Screen Recording and pick “BeamRoom” from the list.")
+                .font(.caption2)
         }
     }
 
     private var pairingSection: some View {
-        Section("Pairing") {
+        Section {
             if model.pendingPairs.isEmpty && model.sessions.isEmpty {
                 Text("No active or pending viewers.")
                     .foregroundStyle(.secondary)
@@ -237,11 +277,14 @@ struct HostRootView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(pending.remoteDescription)
+
                         Text("Code \(pending.code)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
+
                     Spacer()
+
                     Button("Decline") {
                         model.decline(pending.id)
                     }
@@ -257,11 +300,14 @@ struct HostRootView: View {
             ForEach(model.sessions) { session in
                 VStack(alignment: .leading) {
                     Text(session.remoteDescription)
+
                     Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
+        } header: {
+            Text("Pairing")
         }
     }
 }
@@ -272,8 +318,8 @@ struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let view = RPSystemBroadcastPickerView()
         view.showsMicrophoneButton = false
-        // If you want to force the specific extension, set preferredExtension here.
-        // view.preferredExtension = "<your.broadcast.extension.bundle.id>"
+        // If you want to force the specific extension, set preferredExtension here:
+        // view.preferredExtension = "com.yourcompany.BeamRoomUpload2"
         return view
     }
 
