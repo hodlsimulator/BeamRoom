@@ -3,7 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
+    <string>en-GB</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>BeamRoom Host</string>
 
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
@@ -20,24 +23,26 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
-    <!-- Marketing version (shown to users) -->
+    <!-- Marketing version (shown to users; set in Xcode as MARKETING_VERSION, e.g. 0.9.5) -->
     <key>CFBundleShortVersionString</key>
     <string>$(MARKETING_VERSION)</string>
 
-    <!-- Build number -->
+    <!-- Build number (CURRENT_PROJECT_VERSION, e.g. 11) -->
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
 
     <key>LSRequiresIPhoneOS</key>
     <true/>
 
+    <!-- Host advertises BOTH control (_beamctl._tcp) and media (_beamroom._udp) -->
     <key>NSBonjourServices</key>
     <array>
         <string>_beamroom._udp</string>
+        <string>_beamctl._tcp</string>
     </array>
 
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Needed for peer-to-peer screen sharing.</string>
+    <string>BeamRoom uses the local network to discover and connect to nearby devices for screen sharing.</string>
 
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
@@ -62,17 +67,23 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Keep host alive while playing silent audio -->
+    <!-- Keep host alive while broadcast is running (silent audio) -->
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
     </array>
 
+    <!-- Host PUBLISHES Wi-Fi Aware control + media services -->
     <key>WiFiAwareServices</key>
     <dict>
         <key>_beamctl._tcp</key>
         <dict>
-            <key>Subscriber</key>
+            <key>Publishable</key>
+            <true/>
+        </dict>
+        <key>_beamroom._udp</key>
+        <dict>
+            <key>Publishable</key>
             <true/>
         </dict>
     </dict>
