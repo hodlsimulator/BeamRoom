@@ -34,7 +34,6 @@ final class ViewerViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
-        // Forward media changes into this view model so SwiftUI refreshes
         media.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -62,7 +61,6 @@ final class ViewerViewModel: ObservableObject {
         browser.stop()
     }
 
-    // Open the sheet and auto-pair when a host is tapped
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
@@ -71,7 +69,6 @@ final class ViewerViewModel: ObservableObject {
         pair()
     }
 
-    // Connect when the user taps “Pair”
     func pair() {
         guard let host = selectedHost else { return }
 
@@ -99,7 +96,6 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // Start UDP video only when Broadcast is ON and we know the port
     func maybeStartMedia() {
         guard client.broadcastOn else {
             BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
@@ -112,7 +108,6 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        // Prefer the browser’s resolved endpoint
         let updated = browser.hosts.first {
             $0.endpoint.debugDescription == sel.endpoint.debugDescription
         } ?? sel
@@ -124,14 +119,12 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        // Fallback to the control link’s resolved host
         if let h = client.udpHostCandidate() {
             media.connect(toHost: h, port: udpPort)
             media.armAutoReconnect()
             return
         }
 
-        // Last resort: the original host:port, if applicable
         if case let .hostPort(host: h, port: _) = updated.endpoint {
             media.connect(toHost: h, port: udpPort)
             media.armAutoReconnect()
@@ -149,22 +142,25 @@ struct ViewerRootView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            ZStack(alignment: .bottom) {
                 Color(.black)
                     .ignoresSafeArea()
 
                 if let cg = model.media.lastImage {
                     // Full-screen video mode once we have a frame
-                    Image(uiImage: UIImage(cgImage: cg))
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .drawingGroup()
-
-                    VStack {
-                        Spacer()
-                        statsFooter()
-                            .padding(.bottom, 16)
+                    GeometryReader { proxy in
+                        Image(uiImage: UIImage(cgImage: cg))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
+                            .drawingGroup()
+                            .ignoresSafeArea()
                     }
+                    .ignoresSafeArea()
+
+                    statsFooter()
+                        .padding(.bottom, 16)
                 } else {
                     // Discovery / waiting UI before the first frame arrives
                     VStack(spacing: 12) {
@@ -205,6 +201,7 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Viewer")
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -221,19 +218,16 @@ struct ViewerRootView: View {
             .onDisappear {
                 model.stopDiscovery()
             }
-            // When paired, we may or may not have Broadcast ON yet; gate by broadcastOn
             .onChange(of: model.client.status) { _, new in
                 if case .paired = new {
                     model.maybeStartMedia()
                 }
             }
-            // As soon as Host flips Broadcast → ON, start UDP immediately
             .onChange(of: model.client.broadcastOn) { _, on in
                 if on {
                     model.maybeStartMedia()
                 }
             }
-            // Auto-dismiss Pair sheet once the first frame arrives so the preview is visible
             .onChange(of: model.media.lastImage) { _, img in
                 if img != nil,
                    model.showPairSheet,
@@ -242,16 +236,13 @@ struct ViewerRootView: View {
                     model.showPairSheet = false
                 }
             }
-            // Pairing UI
             .sheet(isPresented: $model.showPairSheet) {
                 PairSheet(model: model)
                     .presentationDetents([.fraction(0.35), .medium])
             }
-            // Wi-Fi Aware picker
             .sheet(isPresented: $model.showAwareSheet) {
                 awarePickSheet()
             }
-            // Logs
             .sheet(isPresented: $showLogs) {
                 BeamLogView()
             }
@@ -262,7 +253,6 @@ struct ViewerRootView: View {
 // MARK: - Helpers & subviews
 
 private extension ViewerRootView {
-    // Primary host used by the big “Connect” button
     private var primaryHost: DiscoveredHost? {
         if let selected = model.selectedHost {
             return selected
@@ -548,7 +538,6 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                // If we’re already paired and Broadcast is ON, start media.
                 if case .paired = model.client.status,
                    model.client.broadcastOn {
                     model.maybeStartMedia()
