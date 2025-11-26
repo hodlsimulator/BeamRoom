@@ -46,6 +46,7 @@ final class ViewerViewModel: ObservableObject {
     func startDiscovery() {
         do {
             try browser.start()
+
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 if self.browser.hosts.isEmpty {
@@ -73,6 +74,7 @@ final class ViewerViewModel: ObservableObject {
     // Connect when the user taps “Pair”
     func pair() {
         guard let host = selectedHost else { return }
+
         switch client.status {
         case .idle, .failed:
             client.connect(to: host, code: code)
@@ -148,7 +150,8 @@ struct ViewerRootView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.black).ignoresSafeArea()
+                Color(.black)
+                    .ignoresSafeArea()
 
                 if let cg = model.media.lastImage {
                     // Full-screen video mode once we have a frame
@@ -180,12 +183,14 @@ struct ViewerRootView: View {
                             discoveringView
                         } else {
                             hostList
+                            primaryConnectButton()
                         }
 
                         GeometryReader { proxy in
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color.secondary.opacity(0.08))
+
                                 VStack(spacing: 8) {
                                     ProgressView()
                                     Text("Waiting for video…")
@@ -230,7 +235,9 @@ struct ViewerRootView: View {
             }
             // Auto-dismiss Pair sheet once the first frame arrives so the preview is visible
             .onChange(of: model.media.lastImage) { _, img in
-                if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
+                if img != nil,
+                   model.showPairSheet,
+                   !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
                     model.showPairSheet = false
                 }
@@ -255,6 +262,30 @@ struct ViewerRootView: View {
 // MARK: - Helpers & subviews
 
 private extension ViewerRootView {
+    // Primary host used by the big “Connect” button
+    private var primaryHost: DiscoveredHost? {
+        if let selected = model.selectedHost {
+            return selected
+        }
+        return model.browser.hosts.first
+    }
+
+    @ViewBuilder
+    func primaryConnectButton() -> some View {
+        if let host = primaryHost {
+            Button {
+                model.pick(host)
+            } label: {
+                Label("Connect to \(host.name)", systemImage: "play.circle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .frame(maxWidth: .infinity)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     @ViewBuilder
     func awarePickButton() -> some View {
         Button {
@@ -272,11 +303,14 @@ private extension ViewerRootView {
     var permissionHint: some View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill")
+
             Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
                 .font(.footnote)
                 .lineLimit(2)
                 .minimumScaleFactor(0.9)
+
             Spacer(minLength: 6)
+
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
@@ -340,6 +374,7 @@ private extension ViewerRootView {
         #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
+
             let provider = WASubscriberBrowser.wifiAware(
                 .connecting(to: devices, from: service),
                 active: nil
@@ -514,7 +549,8 @@ private struct PairSheet: View {
             }
             .onAppear {
                 // If we’re already paired and Broadcast is ON, start media.
-                if case .paired = model.client.status, model.client.broadcastOn {
+                if case .paired = model.client.status,
+                   model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }

@@ -36,17 +36,23 @@ final class HostViewModel: ObservableObject {
 
         server.$sessions
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.sessions = $0 }
+            .sink { [weak self] in
+                self?.sessions = $0
+            }
             .store(in: &cancellables)
 
         server.$pendingPairs
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.pendingPairs = $0 }
+            .sink { [weak self] in
+                self?.pendingPairs = $0
+            }
             .store(in: &cancellables)
 
         server.$udpPeer
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.udpPeer = $0 }
+            .sink { [weak self] in
+                self?.udpPeer = $0
+            }
             .store(in: &cancellables)
     }
 
@@ -114,6 +120,7 @@ final class HostViewModel: ObservableObject {
 
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+
             let on = BeamConfig.isBroadcastOn()
 
             Task { @MainActor in
@@ -151,6 +158,7 @@ struct HostRootView: View {
     var body: some View {
         NavigationStack {
             List {
+                quickStartSection
                 hostSection
                 broadcastSection
                 pairingSection
@@ -184,6 +192,69 @@ struct HostRootView: View {
 
     // MARK: - Sections
 
+    private var quickStartSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                if !model.started {
+                    // Step 1 – Start hosting
+                    Text("Step 1 of 3 • Start hosting")
+                        .font(.headline)
+                    Text("Advertise this device so nearby Viewers can discover it.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        model.toggleServer()
+                    } label: {
+                        Label("Start hosting", systemImage: "play.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if model.started && !hasActiveSession {
+                    // Step 2 – Waiting for Viewer
+                    Text("Step 2 of 3 • Waiting for Viewer")
+                        .font(.headline)
+                    Text("Ask the Viewer to open BeamRoom and select this device to pair.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else if model.started && hasActiveSession && !model.broadcastOn {
+                    // Step 3 – Start Screen Broadcast
+                    Text("Step 3 of 3 • Start Screen Broadcast")
+                        .font(.headline)
+                    Text("Once broadcasting starts, your screen is mirrored to the paired Viewer.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        broadcastController.startBroadcast()
+                    } label: {
+                        Label("Start Screen Broadcast", systemImage: "dot.radiowaves.left.and.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if model.started && model.broadcastOn {
+                    // Streaming live
+                    Text("Streaming live")
+                        .font(.headline)
+                    Text("Broadcast is ON. To stop, end the broadcast from Control Centre or the system sheet.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                // Hidden system picker – this is what actually talks to ReplayKit
+                BroadcastPickerShim(controller: broadcastController)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .accessibilityHidden(true)
+
+                statusSummary
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text("Quick start")
+        }
+    }
+
     private var hostSection: some View {
         Section {
             TextField("Service name", text: $model.serviceName)
@@ -197,8 +268,9 @@ struct HostRootView: View {
                     model.started ? "Stop hosting" : "Start hosting",
                     systemImage: model.started ? "stop.circle.fill" : "play.circle.fill"
                 )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
 
             Toggle(
                 "Auto-accept pairing",
@@ -223,29 +295,26 @@ struct HostRootView: View {
         Section {
             HStack {
                 Text("Broadcast status")
+
                 Spacer()
+
                 Circle()
                     .fill(model.broadcastOn ? Color.green : Color.red)
                     .frame(width: 10, height: 10)
+
                 Text(model.broadcastOn ? "ON" : "OFF")
                     .foregroundColor(model.broadcastOn ? .green : .secondary)
                     .font(.subheadline.bold())
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                // Hidden system picker – this is what actually talks to ReplayKit
-                BroadcastPickerShim(controller: broadcastController)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .accessibilityHidden(true)
-
                 Button {
                     broadcastController.startBroadcast()
                 } label: {
                     Label("Start Screen Broadcast", systemImage: "dot.radiowaves.left.and.right")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
 
                 Text(
                     "If the sheet doesn’t appear, open Control Centre, long-press Screen Recording, choose “BeamRoom Upload2”, then tap Start Broadcast."
@@ -305,6 +374,40 @@ struct HostRootView: View {
             Text("Pairing")
         }
     }
+
+    // MARK: - Helpers
+
+    private var hasActiveSession: Bool {
+        !model.sessions.isEmpty
+    }
+
+    private var viewerCountLabel: String {
+        let count = model.sessions.count
+        switch count {
+        case 0:
+            return "No viewers"
+        case 1:
+            return "1 viewer"
+        default:
+            return "\(count) viewers"
+        }
+    }
+
+    private var statusSummary: some View {
+        HStack(spacing: 8) {
+            Label(model.started ? "Hosting" : "Not hosting",
+                  systemImage: model.started ? "wifi.router.fill" : "wifi.slash")
+
+            Label(viewerCountLabel, systemImage: "person.2")
+
+            Label(model.broadcastOn ? "Broadcast ON" : "Broadcast OFF",
+                  systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+    }
 }
 
 // MARK: - Broadcast picker shim
@@ -332,10 +435,8 @@ struct BroadcastPickerShim: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView()
         picker.showsMicrophoneButton = true
-
         // Let the system show all upload extensions; user picks BeamRoomUpload2.
         picker.preferredExtension = nil
-
         controller.pickerView = picker
         return picker
     }
