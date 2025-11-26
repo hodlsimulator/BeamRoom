@@ -23,18 +23,18 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
-    <!-- Marketing version (shown to users; set in Xcode as MARKETING_VERSION, e.g. 0.9.5) -->
+    <!-- Marketing version (edit in target’s Version field, e.g. 0.9.5) -->
     <key>CFBundleShortVersionString</key>
     <string>$(MARKETING_VERSION)</string>
 
-    <!-- Build number (CURRENT_PROJECT_VERSION, e.g. 11) -->
+    <!-- Build number (CURRENT_PROJECT_VERSION) -->
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
 
     <key>LSRequiresIPhoneOS</key>
     <true/>
 
-    <!-- Host advertises BOTH control (_beamctl._tcp) and media (_beamroom._udp) -->
+    <!-- Bonjour for control + media -->
     <key>NSBonjourServices</key>
     <array>
         <string>_beamroom._udp</string>
@@ -67,13 +67,13 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Keep host alive while broadcast is running (silent audio) -->
+    <!-- Keeps host alive while playing silent audio during broadcast -->
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
     </array>
 
-    <!-- Host PUBLISHES Wi-Fi Aware control + media services -->
+    <!-- Host publishes Wi-Fi Aware control + media services -->
     <key>WiFiAwareServices</key>
     <dict>
         <key>_beamctl._tcp</key>

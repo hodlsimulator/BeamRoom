@@ -7,9 +7,10 @@
 
 import SwiftUI
 import Combine
-import BeamCore
 import OSLog
 import ReplayKit
+import UIKit
+import BeamCore
 
 // MARK: - View model
 
@@ -35,27 +36,21 @@ final class HostViewModel: ObservableObject {
 
         server.$sessions
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.sessions = $0
-            }
+            .sink { [weak self] in self?.sessions = $0 }
             .store(in: &cancellables)
 
         server.$pendingPairs
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.pendingPairs = $0
-            }
+            .sink { [weak self] in self?.pendingPairs = $0 }
             .store(in: &cancellables)
 
         server.$udpPeer
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.udpPeer = $0
-            }
+            .sink { [weak self] in self?.udpPeer = $0 }
             .store(in: &cancellables)
     }
 
-    // MARK: - Public API for the view
+    // MARK: - Public API
 
     func toggleServer() {
         if started {
@@ -95,10 +90,7 @@ final class HostViewModel: ObservableObject {
                 broadcastOn = false
             }
         } catch {
-            BeamLog.error(
-                "Failed to start host: \(error.localizedDescription)",
-                tag: "host"
-            )
+            BeamLog.error("Failed to start host: \(error.localizedDescription)", tag: "host")
         }
     }
 
@@ -112,7 +104,7 @@ final class HostViewModel: ObservableObject {
         BackgroundAudioKeeper.shared.stop()
     }
 
-    // MARK: - Broadcast polling → drives UI + background audio
+    // MARK: - Broadcast polling → drives background audio
 
     private func startBroadcastPoll() {
         stopBroadcastPoll()
@@ -122,7 +114,6 @@ final class HostViewModel: ObservableObject {
 
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-
             let on = BeamConfig.isBroadcastOn()
 
             Task { @MainActor in
@@ -150,10 +141,11 @@ final class HostViewModel: ObservableObject {
     }
 }
 
-// MARK: - View
+// MARK: - Host view
 
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
+    @StateObject private var broadcastController = BroadcastLaunchController()
     @State private var showingLogs = false
 
     var body: some View {
@@ -229,44 +221,45 @@ struct HostRootView: View {
 
     private var broadcastSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    Text(model.broadcastOn ? "ON" : "OFF")
-                        .foregroundStyle(model.broadcastOn ? .green : .secondary)
-                        .monospacedDigit()
-                        .fontWeight(.semibold)
+            HStack {
+                Text("Broadcast status")
+                Spacer()
+                Circle()
+                    .fill(model.broadcastOn ? Color.green : Color.red)
+                    .frame(width: 10, height: 10)
+                Text(model.broadcastOn ? "ON" : "OFF")
+                    .foregroundColor(model.broadcastOn ? .green : .secondary)
+                    .font(.subheadline.bold())
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                // Hidden system picker – this is what actually talks to ReplayKit
+                BroadcastPickerShim(controller: broadcastController)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .accessibilityHidden(true)
+
+                Button {
+                    broadcastController.startBroadcast()
+                } label: {
+                    Label("Start Screen Broadcast", systemImage: "dot.radiowaves.left.and.right")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
 
                 Text(
-                    model.broadcastOn
-                    ? "Screen sharing is live. You can switch to any app and this host will stay awake in the background while broadcasting."
-                    : "To share the screen, start a ReplayKit broadcast. Use the button below, or long‑press Screen Recording in Control Centre and choose BeamRoom."
+                    "If the sheet doesn’t appear, open Control Centre, long-press Screen Recording, choose “BeamRoom Upload2”, then tap Start Broadcast."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
-                HStack {
-                    Spacer()
-                    VStack(spacing: 4) {
-                        BroadcastPicker()
-                            .frame(width: 220, height: 52)
-                            .accessibilityLabel("Start or stop screen broadcast")
-
-                        Text("Tap to start / stop video")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
+                Text("Once broadcasting, video is sent to paired Viewers even while this app is in the background.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.vertical, 4)
         } header: {
             Text("Screen broadcast")
-        } footer: {
-            Text("Tip: If the button above does not appear, open Control Centre, long‑press Screen Recording and pick “BeamRoom” from the list.")
-                .font(.caption2)
         }
     }
 
@@ -314,21 +307,40 @@ struct HostRootView: View {
     }
 }
 
-// MARK: - Broadcast picker wrapper
+// MARK: - Broadcast picker shim
 
-struct BroadcastPicker: UIViewRepresentable {
+final class BroadcastLaunchController: ObservableObject {
+    fileprivate weak var pickerView: RPSystemBroadcastPickerView?
+
+    func startBroadcast() {
+        guard let pickerView else { return }
+
+        for subview in pickerView.subviews {
+            if let button = subview as? UIButton {
+                button.sendActions(for: .touchUpInside)
+                break
+            }
+        }
+    }
+}
+
+/// Invisible RPSystemBroadcastPickerView wired to a controller.
+/// The big SwiftUI button calls `startBroadcast()` which taps it.
+struct BroadcastPickerShim: UIViewRepresentable {
+    @ObservedObject var controller: BroadcastLaunchController
+
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let view = RPSystemBroadcastPickerView()
-        view.showsMicrophoneButton = false
+        let picker = RPSystemBroadcastPickerView()
+        picker.showsMicrophoneButton = true
 
-        // If you want to force the specific extension, set preferredExtension here
-        // once you know the exact bundle ID of the Broadcast Upload extension:
-        // view.preferredExtension = "com.yourcompany.BeamRoomUpload2"
+        // Let the system show all upload extensions; user picks BeamRoomUpload2.
+        picker.preferredExtension = nil
 
-        return view
+        controller.pickerView = picker
+        return picker
     }
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {
-        // No-op
+        controller.pickerView = uiView
     }
 }
