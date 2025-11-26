@@ -25,7 +25,7 @@ final class HostViewModel: ObservableObject {
 
     let server: BeamControlServer
 
-    private var cancellables: Set<AnyCancellable> = []
+    private var cancellables = Set<AnyCancellable>()
     private var broadcastPoll: DispatchSourceTimer?
 
     init() {
@@ -95,7 +95,10 @@ final class HostViewModel: ObservableObject {
                 broadcastOn = false
             }
         } catch {
-            BeamLog.error("Failed to start host: \(error.localizedDescription)", tag: "host")
+            BeamLog.error(
+                "Failed to start host: \(error.localizedDescription)",
+                tag: "host"
+            )
         }
     }
 
@@ -119,6 +122,7 @@ final class HostViewModel: ObservableObject {
 
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+
             let on = BeamConfig.isBroadcastOn()
 
             Task { @MainActor in
@@ -238,7 +242,7 @@ struct HostRootView: View {
                 Text(
                     model.broadcastOn
                     ? "Screen sharing is live. You can switch to any app and this host will stay awake in the background while broadcasting."
-                    : "To share the screen, start a ReplayKit broadcast. Use the button below, or long-press Screen Recording in Control Centre and choose BeamRoom."
+                    : "To share the screen, start a ReplayKit broadcast. Use the button below, or long‑press Screen Recording in Control Centre and choose BeamRoom."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -251,7 +255,7 @@ struct HostRootView: View {
                             .frame(width: 220, height: 52)
                             .accessibilityLabel("Start or stop screen broadcast")
 
-                        Text("Tap to start / stop")
+                        Text("Tap to start / stop video")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -261,7 +265,7 @@ struct HostRootView: View {
         } header: {
             Text("Screen broadcast")
         } footer: {
-            Text("Tip: If the button above does not appear, open Control Centre, long-press Screen Recording and pick “BeamRoom” from the list.")
+            Text("Tip: If the button above does not appear, open Control Centre, long‑press Screen Recording and pick “BeamRoom” from the list.")
                 .font(.caption2)
         }
     }
@@ -277,7 +281,6 @@ struct HostRootView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(pending.remoteDescription)
-
                         Text("Code \(pending.code)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -300,7 +303,6 @@ struct HostRootView: View {
             ForEach(model.sessions) { session in
                 VStack(alignment: .leading) {
                     Text(session.remoteDescription)
-
                     Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -312,14 +314,17 @@ struct HostRootView: View {
     }
 }
 
-// MARK: - Broadcast picker
+// MARK: - Broadcast picker wrapper
 
 struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let view = RPSystemBroadcastPickerView()
         view.showsMicrophoneButton = false
-        // If you want to force the specific extension, set preferredExtension here:
+
+        // If you want to force the specific extension, set preferredExtension here
+        // once you know the exact bundle ID of the Broadcast Upload extension:
         // view.preferredExtension = "com.yourcompany.BeamRoomUpload2"
+
         return view
     }
 

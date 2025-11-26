@@ -4,6 +4,9 @@
 //
 //  Created by . . on 11/25/25.
 //
+//  Keeps the host process alive while a ReplayKit broadcast is running
+//  by playing a tiny loop of silent audio.
+//
 
 import Foundation
 import AVFoundation
@@ -19,6 +22,7 @@ final class BackgroundAudioKeeper {
     private var isRunning = false
 
     private init() {
+        // Build the audio graph once.
         engine.attach(player)
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -29,7 +33,8 @@ final class BackgroundAudioKeeper {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [])
+            // Playback + background audio; mixes with other audio so it’s less intrusive.
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
         } catch {
             log.error("AVAudioSession setup failed: \(error.localizedDescription)")
@@ -45,26 +50,26 @@ final class BackgroundAudioKeeper {
 
         buffer.frameLength = frameCount
 
+        // Fill all channels with zeros (silence).
         if let channelData = buffer.floatChannelData {
             let channels = Int(format.channelCount)
             let samplesPerChannel = Int(frameCount)
+
             for channel in 0..<channels {
                 let ptr = channelData[channel]
-                for i in 0..<samplesPerChannel {
-                    ptr[i] = 0
-                }
+                ptr.update(repeating: 0, count: samplesPerChannel)
             }
         }
 
-        player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
-
         do {
+            engine.prepare()
             try engine.start()
+            player.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
             player.play()
             isRunning = true
-            log.info("Background audio engine started")
+            log.notice("Background audio keeper started")
         } catch {
-            log.error("Audio engine start failed: \(error.localizedDescription)")
+            log.error("Failed to start audio engine: \(error.localizedDescription)")
         }
     }
 
@@ -74,13 +79,14 @@ final class BackgroundAudioKeeper {
         player.stop()
         engine.stop()
         isRunning = false
-        log.info("Background audio engine stopped")
 
         do {
-            try AVAudioSession.sharedInstance().setActive(false,
-                                                         options: [.notifyOthersOnDeactivation])
+            try AVAudioSession.sharedInstance()
+                .setActive(false, options: [.notifyOthersOnDeactivation])
         } catch {
-            log.error("AVAudioSession deactivate failed: \(error.localizedDescription)")
+            log.error("Failed to deactivate AVAudioSession: \(error.localizedDescription)")
         }
+
+        log.notice("Background audio keeper stopped")
     }
 }
