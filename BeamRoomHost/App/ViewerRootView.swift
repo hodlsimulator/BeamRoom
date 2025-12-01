@@ -185,13 +185,15 @@ struct ViewerRootView: View {
             .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
             .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .tabBar)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showLogs = true
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
+                if model.media.lastImage == nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showLogs = true
+                        } label: {
+                            Image(systemName: "doc.text.magnifyingglass")
+                        }
+                        .accessibilityLabel("Show logs")
                     }
-                    .accessibilityLabel("Show logs")
                 }
             }
             .task {
@@ -300,29 +302,27 @@ private extension ViewerRootView {
     // Active video mode with a minimal control overlay.
     @ViewBuilder
     func videoView(_ cgImage: CGImage) -> some View {
-        GeometryReader { proxy in
-            Image(uiImage: UIImage(cgImage: cgImage))
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .clipped()
-                .ignoresSafeArea()
-        }
-        .background(Color.black.ignoresSafeArea())
-        .overlay(alignment: .topTrailing) {
-            Button {
-                model.cancelPairing()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .imageScale(.large)
-                    .padding(8)
+        Image(uiImage: UIImage(cgImage: cgImage))
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .background(Color.black)
+            .ignoresSafeArea()
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    model.cancelPairing()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .imageScale(.large)
+                        .padding(8)
+                }
+                .background(.thinMaterial)
+                .clipShape(Circle())
+                .padding(.top, 16)
+                .padding(.trailing, 16)
+                .accessibilityLabel("Stop viewing")
             }
-            .background(.thinMaterial)
-            .clipShape(Circle())
-            .padding(.top, 16)
-            .padding(.trailing, 16)
-            .accessibilityLabel("Stop viewing")
-        }
     }
 
     private var idleSubtitle: String {
