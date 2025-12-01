@@ -19,6 +19,8 @@ import DeviceDiscoveryUI
 import WiFiAware
 #endif
 
+// MARK: - View model
+
 @MainActor
 final class ViewerViewModel: ObservableObject {
     @Published var code: String = BeamControlClient.randomCode()
@@ -162,6 +164,8 @@ final class ViewerViewModel: ObservableObject {
     }
 }
 
+// MARK: - Root view
+
 struct ViewerRootView: View {
     @StateObject private var model = ViewerViewModel()
     @State private var showLogs = false
@@ -169,62 +173,13 @@ struct ViewerRootView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottom) {
-                Color(.black)
-                    .ignoresSafeArea()
+            ZStack {
+                Color.black.ignoresSafeArea()
 
                 if let cg = model.media.lastImage {
-                    // Full-screen video mode once we have a frame
-                    GeometryReader { proxy in
-                        Image(uiImage: UIImage(cgImage: cg))
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .clipped()
-                            .drawingGroup()
-                            .ignoresSafeArea()
-                    }
-                    .ignoresSafeArea()
-
-                    statsFooter()
-                        .padding(.bottom, 16)
+                    videoView(cg)
                 } else {
-                    // Discovery / waiting UI before the first frame arrives
-                    VStack(spacing: 12) {
-                        Text("BeamRoom — Viewer")
-                            .font(.largeTitle)
-                            .bold()
-                            .multilineTextAlignment(.center)
-
-                        awarePickButton()
-
-                        if model.showPermHint && model.browser.hosts.isEmpty {
-                            permissionHint
-                        }
-
-                        if model.browser.hosts.isEmpty {
-                            discoveringView
-                        } else {
-                            hostList
-                            primaryConnectButton()
-                        }
-
-                        GeometryReader { proxy in
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.secondary.opacity(0.08))
-
-                                VStack(spacing: 8) {
-                                    ProgressView()
-                                    Text("Waiting for video…")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                        }
-                        .frame(maxHeight: .infinity)
-                    }
-                    .padding()
+                    idleStateView
                 }
             }
             .navigationTitle("Viewer")
@@ -236,7 +191,7 @@ struct ViewerRootView: View {
                     } label: {
                         Image(systemName: "doc.text.magnifyingglass")
                     }
-                    .lineLimit(1)
+                    .accessibilityLabel("Show logs")
                 }
             }
             .task {
@@ -272,15 +227,116 @@ struct ViewerRootView: View {
                 awarePickSheet()
             }
             .sheet(isPresented: $showLogs) {
-                BeamLogView()
+                NavigationStack {
+                    BeamLogView()
+                        .navigationTitle("Logs")
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") {
+                                    showLogs = false
+                                }
+                            }
+                        }
+                }
             }
         }
     }
 }
 
-// MARK: - Helpers & subviews
+// MARK: - Layout helpers
 
 private extension ViewerRootView {
+    // Idle state before any video arrives.
+    var idleStateView: some View {
+        VStack(spacing: 28) {
+            Spacer()
+
+            VStack(spacing: 12) {
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Text("Join a screen")
+                    .font(.title)
+                    .bold()
+                    .foregroundColor(.white)
+
+                Text(idleSubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+
+            if model.browser.hosts.isEmpty {
+                discoveringView
+            } else {
+                primaryConnectButton()
+
+                if model.browser.hosts.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Other nearby Hosts")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        hostList
+                    }
+                }
+            }
+
+            if model.showPermHint && model.browser.hosts.isEmpty {
+                permissionHint
+            }
+
+            Spacer()
+
+            bottomControls
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // Active video mode with subtle overlay.
+    @ViewBuilder
+    func videoView(_ cgImage: CGImage) -> some View {
+        GeometryReader { proxy in
+            Image(uiImage: UIImage(cgImage: cgImage))
+                .resizable()
+                .scaledToFit()
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .background(Color.black)
+                .ignoresSafeArea()
+        }
+        .overlay(alignment: .bottomLeading) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let host = model.selectedHost {
+                        Label(host.name, systemImage: "display")
+                            .font(.footnote)
+                    }
+                    statsFooter()
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding([.horizontal, .bottom], 16)
+        }
+    }
+
+    private var idleSubtitle: String {
+        let count = model.browser.hosts.count
+
+        if count == 0 {
+            return "Once a Host on this network starts sharing, it appears here."
+        } else if count == 1 {
+            return "Found 1 nearby Host. Connect to start watching."
+        } else {
+            return "Found \(count) nearby Hosts. Choose one to start watching."
+        }
+    }
+
     private var primaryHost: DiscoveredHost? {
         if let selected = model.selectedHost {
             return selected
@@ -294,13 +350,118 @@ private extension ViewerRootView {
             Button {
                 model.pick(host)
             } label: {
-                Label("Connect to \(host.name)", systemImage: "play.circle.fill")
-                    .labelStyle(.titleAndIcon)
-                    .frame(maxWidth: .infinity)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                HStack(spacing: 12) {
+                    Image(systemName: "play.circle.fill")
+                        .imageScale(.large)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Connect to")
+                            .font(.caption)
+                            .opacity(0.9)
+                        Text(host.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    var discoveringView: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .tint(.white)
+            Text("Looking for nearby Hosts on this network…")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    var hostList: some View {
+        VStack(spacing: 8) {
+            ForEach(model.browser.hosts) { host in
+                Button {
+                    model.pick(host)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .imageScale(.medium)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(host.name)
+                                .font(.body)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
+
+                            Text("Tap to connect")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    var permissionHint: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Nothing showing up?")
+                    .font(.footnote.weight(.semibold))
+
+                Text("Local Network access for BeamRoom may need to be enabled in Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 6)
+
+            Button("Open") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .buttonStyle(.bordered)
+            .font(.footnote)
+        }
+        .padding(12)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    var bottomControls: some View {
+        HStack {
+            awarePickButton()
+            Spacer()
+            connectionStatus
         }
     }
 
@@ -309,67 +470,39 @@ private extension ViewerRootView {
         Button {
             model.showAwareSheet = true
         } label: {
-            Label("Find & Pair Host (Wi-Fi Aware)", systemImage: "person.2.wave.2")
+            Label("Nearby pairing", systemImage: "antenna.radiowaves.left.and.right")
+                .font(.footnote)
                 .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
         }
         .buttonStyle(.bordered)
     }
 
     @ViewBuilder
-    var permissionHint: some View {
-        HStack {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
+    var connectionStatus: some View {
+        switch model.client.status {
+        case .idle:
+            EmptyView()
+
+        case .connecting(let hostName, _):
+            Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
-                .lineLimit(2)
-                .minimumScaleFactor(0.9)
+                .foregroundStyle(.secondary)
 
-            Spacer(minLength: 6)
+        case .waitingAcceptance:
+            Label("Waiting for Host…", systemImage: "hourglass")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            .buttonStyle(.bordered)
-            .lineLimit(1)
-            .minimumScaleFactor(0.9)
+        case .paired:
+            Label("Connected", systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.green)
+
+        case .failed:
+            Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundStyle(.red)
         }
-        .padding(10)
-        .background(Color.yellow.opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    @ViewBuilder
-    var discoveringView: some View {
-        VStack(spacing: 8) {
-            Text("Discovering nearby Hosts…")
-                .font(.headline)
-            ProgressView()
-        }
-    }
-
-    @ViewBuilder
-    var hostList: some View {
-        List(model.browser.hosts) { host in
-            Button {
-                model.pick(host)
-            } label: {
-                HStack {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                    Text(host.name)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .frame(maxHeight: 220)
     }
 
     @ViewBuilder
@@ -407,7 +540,7 @@ private extension ViewerRootView {
                 },
                 fallback: {
                     VStack(spacing: 12) {
-                        Text("Wi-Fi Aware not available.")
+                        Text("Wi‑Fi Aware not available.")
                         Button("Close") {
                             model.showAwareSheet = false
                         }
@@ -419,7 +552,7 @@ private extension ViewerRootView {
             )
         } else {
             VStack(spacing: 12) {
-                Text("Wi-Fi Aware service not available.")
+                Text("Wi‑Fi Aware service not available.")
                 Button("Close") {
                     model.showAwareSheet = false
                 }
@@ -430,7 +563,7 @@ private extension ViewerRootView {
         }
         #else
         VStack(spacing: 12) {
-            Text("Wi-Fi Aware UI isn’t available on this build configuration.")
+            Text("Wi‑Fi Aware UI is not available on this build configuration.")
             Button("Close") {
                 model.showAwareSheet = false
             }
@@ -462,7 +595,7 @@ private struct PairSheet: View {
                         .minimumScaleFactor(0.8)
                 }
 
-                Text("Your code")
+                Text("Code for this Viewer")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
