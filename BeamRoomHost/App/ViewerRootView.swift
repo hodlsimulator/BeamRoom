@@ -184,6 +184,7 @@ struct ViewerRootView: View {
             }
             .navigationTitle("Viewer")
             .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
