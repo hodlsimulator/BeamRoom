@@ -30,18 +30,10 @@ enum BeamMode: String, CaseIterable, Identifiable {
 
 struct MainRootView: View {
     @AppStorage("beamroom.selectedMode")
-    private var selectedModeRaw: String = BeamMode.share.rawValue
-
-    private var selectedMode: BeamMode {
-        get { BeamMode(rawValue: selectedModeRaw) ?? .share }
-        set { selectedModeRaw = newValue.rawValue }
-    }
+    private var selectedMode: BeamMode = .share
 
     var body: some View {
-        TabView(selection: Binding(
-            get: { selectedMode },
-            set: { selectedMode = $0 }
-        )) {
+        TabView(selection: $selectedMode) {
             HostRootView()
                 .tabItem {
                     Label(BeamMode.share.label, systemImage: BeamMode.share.systemImage)
