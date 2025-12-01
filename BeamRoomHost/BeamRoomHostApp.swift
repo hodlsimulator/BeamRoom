@@ -14,16 +14,16 @@ struct BeamRoomHostApp: App {
     init() {
         #if AWARE_UI_ENABLED
         Logger(subsystem: "com.conornolan.BeamRoom", category: "build")
-            .info("AWARE_UI_ENABLED = ON (Host)")
+            .info("AWARE_UI_ENABLED = ON (Unified)")
         #else
         Logger(subsystem: "com.conornolan.BeamRoom", category: "build")
-            .info("AWARE_UI_ENABLED = OFF (Host)")
+            .info("AWARE_UI_ENABLED = OFF (Unified)")
         #endif
     }
 
     var body: some Scene {
         WindowGroup {
-            HostRootView()
+            MainRootView()
         }
     }
 }
