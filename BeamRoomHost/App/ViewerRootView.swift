@@ -1,8 +1,8 @@
 //
-//  ViewerRootView.swift
-//  BeamRoomViewer
+// ViewerRootView.swift
+// BeamRoomViewer
 //
-//  Created by . . on 9/21/25.
+// Created by . . on 9/21/25.
 //
 
 import SwiftUI
@@ -148,8 +148,7 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first,
-              browser.hosts.count == 1 else {
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else {
             return
         }
 
@@ -279,6 +278,7 @@ private extension ViewerRootView {
                         Text("Other nearby Hosts")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+
                         hostList
                     }
                 }
@@ -297,34 +297,31 @@ private extension ViewerRootView {
         .padding(.horizontal, 16)
     }
 
-    // Active video mode with subtle overlay.
+    // Active video mode with a minimal control overlay.
     @ViewBuilder
     func videoView(_ cgImage: CGImage) -> some View {
         GeometryReader { proxy in
             Image(uiImage: UIImage(cgImage: cgImage))
                 .resizable()
-                .aspectRatio(contentMode: .fill)      // fill instead of fit
-                .frame(width: proxy.size.width,
-                       height: proxy.size.height)
-                .clipped()                            // crop overflow
+                .aspectRatio(contentMode: .fill)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
                 .ignoresSafeArea()
         }
         .background(Color.black.ignoresSafeArea())
-        .overlay(alignment: .bottomLeading) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let host = model.selectedHost {
-                        Label(host.name, systemImage: "display")
-                            .font(.footnote)
-                    }
-                    statsFooter()
-                }
-                Spacer()
+        .overlay(alignment: .topTrailing) {
+            Button {
+                model.cancelPairing()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .imageScale(.large)
+                    .padding(8)
             }
-            .padding(12)
             .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding([.horizontal, .bottom], 16)
+            .clipShape(Circle())
+            .padding(.top, 16)
+            .padding(.trailing, 16)
+            .accessibilityLabel("Stop viewing")
         }
     }
 
@@ -334,9 +331,15 @@ private extension ViewerRootView {
         if count == 0 {
             return "Once a Host on this network starts sharing, it appears here."
         } else if count == 1 {
-            return "Found 1 nearby Host. Connect to start watching."
+            return """
+            Found 1 nearby Host.
+            Connect to start watching.
+            """
         } else {
-            return "Found \(count) nearby Hosts. Choose one to start watching."
+            return """
+            Found \(count) nearby Hosts.
+            Choose one to start watching.
+            """
         }
     }
 
@@ -361,6 +364,7 @@ private extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .opacity(0.9)
+
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -383,6 +387,7 @@ private extension ViewerRootView {
         VStack(spacing: 8) {
             ProgressView()
                 .tint(.white)
+
             Text("Looking for nearby Hosts on this network…")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -509,20 +514,6 @@ private extension ViewerRootView {
     }
 
     @ViewBuilder
-    func statsFooter() -> some View {
-        Text(
-            String(
-                format: "fps %.1f • %.0f kbps • drops %llu",
-                model.media.stats.fps,
-                model.media.stats.kbps,
-                model.media.stats.drops
-            )
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-
-    @ViewBuilder
     func awarePickSheet() -> some View {
         #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
@@ -590,6 +581,7 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
+
                     Text(host.name)
                         .font(.title3)
                         .bold()
@@ -700,8 +692,7 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                if case .paired = model.client.status,
-                   model.client.broadcastOn {
+                if case .paired = model.client.status, model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }
