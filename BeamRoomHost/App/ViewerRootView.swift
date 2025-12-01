@@ -136,7 +136,7 @@ final class ViewerViewModel: ObservableObject {
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
     }
 
-    /// Auto‑connect to a single discovered Host to remove extra taps.
+    /// Auto-connect to a single discovered Host to remove extra taps.
     func autoConnectIfNeeded() {
         guard !hasAutoConnectedToPrimaryHost else { return }
         guard selectedHost == nil else { return }
@@ -302,11 +302,13 @@ private extension ViewerRootView {
         GeometryReader { proxy in
             Image(uiImage: UIImage(cgImage: cgImage))
                 .resizable()
-                .scaledToFit()
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .background(Color.black)
+                .aspectRatio(contentMode: .fill)      // fill instead of fit
+                .frame(width: proxy.size.width,
+                       height: proxy.size.height)
+                .clipped()                            // crop overflow
                 .ignoresSafeArea()
         }
+        .background(Color.black.ignoresSafeArea())
         .overlay(alignment: .bottomLeading) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
@@ -540,7 +542,7 @@ private extension ViewerRootView {
                 },
                 fallback: {
                     VStack(spacing: 12) {
-                        Text("Wi‑Fi Aware not available.")
+                        Text("Wi-Fi Aware not available.")
                         Button("Close") {
                             model.showAwareSheet = false
                         }
@@ -552,7 +554,7 @@ private extension ViewerRootView {
             )
         } else {
             VStack(spacing: 12) {
-                Text("Wi‑Fi Aware service not available.")
+                Text("Wi-Fi Aware service not available.")
                 Button("Close") {
                     model.showAwareSheet = false
                 }
@@ -563,7 +565,7 @@ private extension ViewerRootView {
         }
         #else
         VStack(spacing: 12) {
-            Text("Wi‑Fi Aware UI is not available on this build configuration.")
+            Text("Wi-Fi Aware UI is not available on this build configuration.")
             Button("Close") {
                 model.showAwareSheet = false
             }
