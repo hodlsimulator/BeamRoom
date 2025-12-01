@@ -26,6 +26,7 @@ final class ViewerViewModel: ObservableObject {
     @Published var showPairSheet: Bool = false
     @Published var showPermHint: Bool = false
     @Published var showAwareSheet: Bool = false
+    @Published var hasAutoConnectedToPrimaryHost: Bool = false
 
     let browser = BeamBrowser()
     let client = BeamControlClient()
@@ -46,6 +47,7 @@ final class ViewerViewModel: ObservableObject {
         do {
             try browser.start()
 
+            // If nothing appears after a short delay, hint about permissions.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 if self.browser.hosts.isEmpty {
@@ -108,9 +110,7 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        let updated = browser.hosts.first {
-            $0.endpoint.debugDescription == sel.endpoint.debugDescription
-        } ?? sel
+        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
 
         if let pref = updated.preferredEndpoint,
            case let .hostPort(host: h, port: _) = pref {
@@ -132,6 +132,33 @@ final class ViewerViewModel: ObservableObject {
         }
 
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
+    }
+
+    /// Auto‑connect to a single discovered Host to remove extra taps.
+    func autoConnectIfNeeded() {
+        guard !hasAutoConnectedToPrimaryHost else { return }
+        guard selectedHost == nil else { return }
+
+        switch client.status {
+        case .idle, .failed:
+            break
+        default:
+            return
+        }
+
+        guard let host = browser.hosts.first,
+              browser.hosts.count == 1 else {
+            return
+        }
+
+        hasAutoConnectedToPrimaryHost = true
+        selectedHost = host
+        code = BeamControlClient.randomCode()
+        BeamLog.info("Auto-selected host \(host.name)", tag: "viewer")
+
+        // Silent auto-pair – no explicit Pair sheet tap needed.
+        showPairSheet = false
+        pair()
     }
 }
 
@@ -218,6 +245,9 @@ struct ViewerRootView: View {
             .onDisappear {
                 model.stopDiscovery()
             }
+            .onChange(of: model.browser.hosts) { _, _ in
+                model.autoConnectIfNeeded()
+            }
             .onChange(of: model.client.status) { _, new in
                 if case .paired = new {
                     model.maybeStartMedia()
@@ -229,9 +259,7 @@ struct ViewerRootView: View {
                 }
             }
             .onChange(of: model.media.lastImage) { _, img in
-                if img != nil,
-                   model.showPairSheet,
-                   !autoDismissedOnFirstFrame {
+                if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
                     model.showPairSheet = false
                 }
@@ -293,7 +321,6 @@ private extension ViewerRootView {
     var permissionHint: some View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill")
-
             Text("If nothing appears, allow Local Network for BeamRoom in Settings.")
                 .font(.footnote)
                 .lineLimit(2)
@@ -364,7 +391,6 @@ private extension ViewerRootView {
         #if canImport(DeviceDiscoveryUI) && canImport(WiFiAware)
         if let service = AwareSupport.subscriberService(named: BeamConfig.controlService) {
             let devices: WASubscriberBrowser.Devices = .userSpecifiedDevices
-
             let provider = WASubscriberBrowser.wifiAware(
                 .connecting(to: devices, from: service),
                 active: nil

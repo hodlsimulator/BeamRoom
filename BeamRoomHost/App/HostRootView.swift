@@ -117,10 +117,8 @@ final class HostViewModel: ObservableObject {
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 1, repeating: 1)
-
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-
             let on = BeamConfig.isBroadcastOn()
 
             Task { @MainActor in
@@ -128,7 +126,6 @@ final class HostViewModel: ObservableObject {
 
                 if on != self.broadcastOn {
                     self.broadcastOn = on
-
                     if on {
                         BackgroundAudioKeeper.shared.start()
                     } else {
@@ -137,7 +134,6 @@ final class HostViewModel: ObservableObject {
                 }
             }
         }
-
         timer.resume()
         broadcastPoll = timer
     }
@@ -188,51 +184,49 @@ struct HostRootView: View {
                     }
             }
         }
+        .onAppear {
+            // If a Broadcast is already running (e.g. started from Control Centre),
+            // automatically start hosting so Viewers can connect without extra taps.
+            if model.broadcastOn, !model.started {
+                model.toggleServer()
+            }
+        }
     }
 
     // MARK: - Sections
 
+    /// Top card: one big button that both starts hosting and opens the Broadcast sheet.
     private var quickStartSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
-                if !model.started {
-                    // Step 1 – Start hosting
-                    Text("Step 1 of 3 • Start hosting")
-                        .font(.headline)
-                    Text("Advertise this device so nearby Viewers can discover it.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                if !model.broadcastOn {
+                    if !model.started {
+                        // Step 1 – Start hosting + prepare broadcast
+                        Text("Step 1 of 2 • Start sharing")
+                            .font(.headline)
+                        Text("Starts hosting and opens the Screen Broadcast sheet so nearby Viewers can connect.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Step 2 – Just start the Screen Broadcast
+                        Text("Step 2 of 2 • Start Screen Broadcast")
+                            .font(.headline)
+                        Text("Start the Screen Broadcast so your screen is mirrored to paired Viewers.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Button {
-                        model.toggleServer()
+                        startQuickShare()
                     } label: {
-                        Label("Start hosting", systemImage: "play.circle.fill")
-                            .frame(maxWidth: .infinity)
+                        Label(
+                            model.started ? "Start Screen Broadcast" : "Start sharing",
+                            systemImage: "play.circle.fill"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                } else if model.started && !hasActiveSession {
-                    // Step 2 – Waiting for Viewer
-                    Text("Step 2 of 3 • Waiting for Viewer")
-                        .font(.headline)
-                    Text("Ask the Viewer to open BeamRoom and select this device to pair.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else if model.started && hasActiveSession && !model.broadcastOn {
-                    // Step 3 – Start Screen Broadcast
-                    Text("Step 3 of 3 • Start Screen Broadcast")
-                        .font(.headline)
-                    Text("Once broadcasting starts, your screen is mirrored to the paired Viewer.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Button {
-                        broadcastController.startBroadcast()
-                    } label: {
-                        Label("Start Screen Broadcast", systemImage: "dot.radiowaves.left.and.right")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else if model.started && model.broadcastOn {
+                } else {
                     // Streaming live
                     Text("Streaming live")
                         .font(.headline)
@@ -295,13 +289,10 @@ struct HostRootView: View {
         Section {
             HStack {
                 Text("Broadcast status")
-
                 Spacer()
-
                 Circle()
                     .fill(model.broadcastOn ? Color.green : Color.red)
                     .frame(width: 10, height: 10)
-
                 Text(model.broadcastOn ? "ON" : "OFF")
                     .foregroundColor(model.broadcastOn ? .green : .secondary)
                     .font(.subheadline.bold())
@@ -347,9 +338,7 @@ struct HostRootView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
-
                     Spacer()
-
                     Button("Decline") {
                         model.decline(pending.id)
                     }
@@ -377,10 +366,6 @@ struct HostRootView: View {
 
     // MARK: - Helpers
 
-    private var hasActiveSession: Bool {
-        !model.sessions.isEmpty
-    }
-
     private var viewerCountLabel: String {
         let count = model.sessions.count
         switch count {
@@ -395,18 +380,29 @@ struct HostRootView: View {
 
     private var statusSummary: some View {
         HStack(spacing: 8) {
-            Label(model.started ? "Hosting" : "Not hosting",
-                  systemImage: model.started ? "wifi.router.fill" : "wifi.slash")
-
+            Label(
+                model.started ? "Hosting" : "Not hosting",
+                systemImage: model.started ? "wifi.router.fill" : "wifi.slash"
+            )
             Label(viewerCountLabel, systemImage: "person.2")
-
-            Label(model.broadcastOn ? "Broadcast ON" : "Broadcast OFF",
-                  systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right")
+            Label(
+                model.broadcastOn ? "Broadcast ON" : "Broadcast OFF",
+                systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
+            )
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
+    }
+
+    /// Called by the big quick‑start button.
+    /// Ensures the server is running, then taps the hidden Broadcast picker.
+    private func startQuickShare() {
+        if !model.started {
+            model.toggleServer()
+        }
+        broadcastController.startBroadcast()
     }
 }
 
