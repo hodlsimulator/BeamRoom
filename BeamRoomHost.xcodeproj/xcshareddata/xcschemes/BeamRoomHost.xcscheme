@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "E13AEDD02E7F73D100331955"
-               BuildableName = "BeamRoomHost.app"
-               BlueprintName = "BeamRoomHost"
+               BuildableName = "BeamRoom.app"
+               BlueprintName = "BeamRoom"
                ReferencedContainer = "container:BeamRoomHost.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E13AEDD02E7F73D100331955"
-            BuildableName = "BeamRoomHost.app"
-            BlueprintName = "BeamRoomHost"
+            BuildableName = "BeamRoom.app"
+            BlueprintName = "BeamRoom"
             ReferencedContainer = "container:BeamRoomHost.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,8 +62,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E13AEDD02E7F73D100331955"
-            BuildableName = "BeamRoomHost.app"
-            BlueprintName = "BeamRoomHost"
+            BuildableName = "BeamRoom.app"
+            BlueprintName = "BeamRoom"
             ReferencedContainer = "container:BeamRoomHost.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

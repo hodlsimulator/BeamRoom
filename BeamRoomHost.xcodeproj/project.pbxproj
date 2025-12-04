@@ -52,7 +52,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		E13AEDD12E7F73D100331955 /* BeamRoomHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeamRoomHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E13AEDD12E7F73D100331955 /* BeamRoom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeamRoom.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13AEE032E7F83A200331955 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = SOURCE_ROOT; };
 		E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BeamRoomBroadcastUpload.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13AEE432E7F942100331955 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
@@ -72,12 +72,12 @@
 			);
 			target = E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */;
 		};
-		E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomHost" target */ = {
+		E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoom" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				info.plist,
 			);
-			target = E13AEDD02E7F73D100331955 /* BeamRoomHost */;
+			target = E13AEDD02E7F73D100331955 /* BeamRoom */;
 		};
 		E1D1D6762E88BA3E008C2C40 /* Exceptions for "BeamRoomUpload2" folder in "BeamRoomUpload2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -92,7 +92,7 @@
 		E13AEDD32E7F73D100331955 /* BeamRoomHost */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoomHost" target */,
+				E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoom" target */,
 			);
 			path = BeamRoomHost;
 			sourceTree = "<group>";
@@ -171,7 +171,7 @@
 		E13AEDD22E7F73D100331955 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				E13AEDD12E7F73D100331955 /* BeamRoomHost.app */,
+				E13AEDD12E7F73D100331955 /* BeamRoom.app */,
 				E13AEE412E7F942100331955 /* BeamRoomBroadcastUpload.appex */,
 				E1D1D66A2E88BA3E008C2C40 /* BeamRoomUpload2.appex */,
 			);
@@ -202,9 +202,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		E13AEDD02E7F73D100331955 /* BeamRoomHost */ = {
+		E13AEDD02E7F73D100331955 /* BeamRoom */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = E13AEDDC2E7F73D300331955 /* Build configuration list for PBXNativeTarget "BeamRoomHost" */;
+			buildConfigurationList = E13AEDDC2E7F73D300331955 /* Build configuration list for PBXNativeTarget "BeamRoom" */;
 			buildPhases = (
 				E13AEDCD2E7F73D100331955 /* Sources */,
 				E13AEDCE2E7F73D100331955 /* Frameworks */,
@@ -220,12 +220,12 @@
 			fileSystemSynchronizedGroups = (
 				E13AEDD32E7F73D100331955 /* BeamRoomHost */,
 			);
-			name = BeamRoomHost;
+			name = BeamRoom;
 			packageProductDependencies = (
 				E13AEE522E7F961D00331955 /* BeamCore */,
 			);
 			productName = BeamRoomHost;
-			productReference = E13AEDD12E7F73D100331955 /* BeamRoomHost.app */;
+			productReference = E13AEDD12E7F73D100331955 /* BeamRoom.app */;
 			productType = "com.apple.product-type.application";
 		};
 		E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */ = {
@@ -312,7 +312,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				E13AEDD02E7F73D100331955 /* BeamRoomHost */,
+				E13AEDD02E7F73D100331955 /* BeamRoom */,
 				E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */,
 				E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */,
 			);
@@ -509,11 +509,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BeamRoomHost/BeamRoomHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomHost/info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BeamRoom;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -547,11 +548,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BeamRoomHost/BeamRoomHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomHost/info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BeamRoom;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -584,7 +586,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomBroadcastUpload/BeamRoomBroadcastUpload.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
@@ -618,7 +620,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomBroadcastUpload/BeamRoomBroadcastUpload.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
@@ -653,7 +655,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomUpload2/BeamRoomUpload2.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomUpload2/Info.plist;
@@ -682,7 +684,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomUpload2/BeamRoomUpload2.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomUpload2/Info.plist;
@@ -718,7 +720,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		E13AEDDC2E7F73D300331955 /* Build configuration list for PBXNativeTarget "BeamRoomHost" */ = {
+		E13AEDDC2E7F73D300331955 /* Build configuration list for PBXNativeTarget "BeamRoom" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				E13AEDDD2E7F73D300331955 /* Debug */,
