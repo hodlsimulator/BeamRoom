@@ -1,8 +1,8 @@
 //
-// ViewerRootView.swift
-// BeamRoomViewer
+//  ViewerRootView.swift
+//  BeamRoomViewer
 //
-// Created by . . on 9/21/25.
+//  Created by . . on 9/21/25.
 //
 
 import SwiftUI
@@ -108,11 +108,14 @@ final class ViewerViewModel: ObservableObject {
 
         guard case .paired(_, let maybePort) = client.status,
               let udpPort = maybePort,
-              let sel = selectedHost else {
+              let sel = selectedHost
+        else {
             return
         }
 
-        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
+        let updated = browser.hosts.first {
+            $0.endpoint.debugDescription == sel.endpoint.debugDescription
+        } ?? sel
 
         if let pref = updated.preferredEndpoint,
            case let .hostPort(host: h, port: _) = pref {
@@ -148,9 +151,7 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first, browser.hosts.count == 1 else {
-            return
-        }
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -181,7 +182,7 @@ struct ViewerRootView: View {
                     idleStateView
                 }
             }
-            .navigationTitle("Viewer")
+            .navigationTitle("Watch")
             .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
             .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .tabBar)
             .toolbar {
@@ -280,7 +281,6 @@ private extension ViewerRootView {
                         Text("Other nearby Hosts")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-
                         hostList
                     }
                 }
@@ -337,8 +337,7 @@ private extension ViewerRootView {
             """
         } else {
             return """
-            Found \(count) nearby Hosts.
-            Choose one to start watching.
+            Found \(count) nearby Hosts. Choose one to start watching.
             """
         }
     }

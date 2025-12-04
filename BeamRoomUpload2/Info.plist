@@ -4,48 +4,35 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en-GB</string>
-
     <key>CFBundleDisplayName</key>
-    <string>BeamRoomUpload2</string>
-
+    <string>BeamRoom</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
-
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
-
     <key>CFBundleName</key>
     <string>$(PRODUCT_NAME)</string>
-
     <key>CFBundlePackageType</key>
     <string>XPC!</string>
-
-    <!-- Marketing version (from the target's Version field, e.g. 0.9.5) -->
     <key>CFBundleShortVersionString</key>
     <string>$(MARKETING_VERSION)</string>
-
-    <!-- Build number (CURRENT_PROJECT_VERSION) -->
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
-
     <key>MinimumOSVersion</key>
     <string>26.0</string>
-
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>
         <string>com.apple.broadcast-services-upload</string>
-
-        <!-- SampleHandler in the Upload2 target -->
         <key>NSExtensionPrincipalClass</key>
         <string>SampleHandler</string>
-
-        <!-- IMPORTANT: RPBroadcastProcessMode is a direct child of NSExtension -->
-        <key>RPBroadcastProcessMode</key>
-        <string>RPBroadcastProcessModeSampleBuffer</string>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>RPBroadcastProcessMode</key>
+            <string>RPBroadcastProcessModeSampleBuffer</string>
+        </dict>
     </dict>
 </dict>
 </plist>

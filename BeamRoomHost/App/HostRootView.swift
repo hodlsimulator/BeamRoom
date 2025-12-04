@@ -36,23 +36,17 @@ final class HostViewModel: ObservableObject {
 
         server.$sessions
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.sessions = $0
-            }
+            .sink { [weak self] in self?.sessions = $0 }
             .store(in: &cancellables)
 
         server.$pendingPairs
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.pendingPairs = $0
-            }
+            .sink { [weak self] in self?.pendingPairs = $0 }
             .store(in: &cancellables)
 
         server.$udpPeer
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.udpPeer = $0
-            }
+            .sink { [weak self] in self?.udpPeer = $0 }
             .store(in: &cancellables)
     }
 
@@ -126,6 +120,7 @@ final class HostViewModel: ObservableObject {
 
                 if on != self.broadcastOn {
                     self.broadcastOn = on
+
                     if on {
                         BackgroundAudioKeeper.shared.start()
                     } else {
@@ -159,7 +154,7 @@ struct HostRootView: View {
                 broadcastSection
                 pairingSection
             }
-            .navigationTitle("BeamRoom Host")
+            .navigationTitle("Share")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -204,6 +199,7 @@ struct HostRootView: View {
                         // Step 1 – Start hosting + prepare broadcast
                         Text("Step 1 of 2 • Start sharing")
                             .font(.headline)
+
                         Text("Starts hosting and opens the Screen Broadcast sheet so nearby Viewers can connect.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -211,6 +207,7 @@ struct HostRootView: View {
                         // Step 2 – Just start the Screen Broadcast
                         Text("Step 2 of 2 • Start Screen Broadcast")
                             .font(.headline)
+
                         Text("Start the Screen Broadcast so your screen is mirrored to paired Viewers.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -230,6 +227,7 @@ struct HostRootView: View {
                     // Streaming live
                     Text("Streaming live")
                         .font(.headline)
+
                     Text("Broadcast is ON. To stop, end the broadcast from Control Centre or the system sheet.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -290,9 +288,11 @@ struct HostRootView: View {
             HStack {
                 Text("Broadcast status")
                 Spacer()
+
                 Circle()
                     .fill(model.broadcastOn ? Color.green : Color.red)
                     .frame(width: 10, height: 10)
+
                 Text(model.broadcastOn ? "ON" : "OFF")
                     .foregroundColor(model.broadcastOn ? .green : .secondary)
                     .font(.subheadline.bold())
@@ -308,7 +308,7 @@ struct HostRootView: View {
                 .buttonStyle(.bordered)
 
                 Text(
-                    "If the sheet doesn’t appear, open Control Centre, long-press Screen Recording, choose “BeamRoom Upload2”, then tap Start Broadcast."
+                    "If the sheet doesn’t appear, open Control Centre, long-press Screen Recording, choose “BeamRoom”, then tap Start Broadcast."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -338,7 +338,9 @@ struct HostRootView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
+
                     Spacer()
+
                     Button("Decline") {
                         model.decline(pending.id)
                     }
@@ -384,7 +386,9 @@ struct HostRootView: View {
                 model.started ? "Hosting" : "Not hosting",
                 systemImage: model.started ? "wifi.router.fill" : "wifi.slash"
             )
+
             Label(viewerCountLabel, systemImage: "person.2")
+
             Label(
                 model.broadcastOn ? "Broadcast ON" : "Broadcast OFF",
                 systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
@@ -431,7 +435,7 @@ struct BroadcastPickerShim: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView()
         picker.showsMicrophoneButton = true
-        // Let the system show all upload extensions; user picks BeamRoomUpload2.
+        // Let the system show all upload extensions; user picks the BeamRoom upload extension.
         picker.preferredExtension = nil
         controller.pickerView = picker
         return picker
