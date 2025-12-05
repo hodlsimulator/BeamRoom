@@ -8,9 +8,8 @@
 import Network
 
 enum BeamTransportParameters {
-
-    /// Control channel over **infrastructure Wi-Fi only** (no AWDL/cellular).
-    /// We rely on app heartbeats, but enabling kernel TCP keepalive adds resilience on some networks.
+    /// Control channel over local Wi‑Fi / peer‑to‑peer (no cellular).
+    /// Uses OS TCP keepalive in addition to app heartbeats for resilience.
     static func tcpInfraWiFi() -> NWParameters {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
@@ -22,16 +21,21 @@ enum BeamTransportParameters {
         tcp.keepaliveCount = 3       // probes before giving up
 
         let params = NWParameters(tls: nil, tcp: tcp)
-        params.includePeerToPeer = false // exclude AWDL
-        params.requiredInterfaceType = .wifi // infra Wi-Fi only
-        params.prohibitedInterfaceTypes = [.cellular] // belt & braces
+
+        // Allow both infrastructure Wi‑Fi and peer‑to‑peer (AWDL / Wi‑Fi Aware).
+        params.includePeerToPeer = true
+
+        // Avoid cellular; BeamRoom is local-only.
+        params.prohibitedInterfaceTypes = [.cellular]
+
         return params
     }
 
-    /// Keep this around for discovery or future P2P needs.
+    /// Peer‑to‑peer oriented parameters (used for discovery via NWBrowser, etc).
     static func tcpPeerToPeer() -> NWParameters {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
+
         let params = NWParameters(tls: nil, tcp: tcp)
         params.includePeerToPeer = true
         return params

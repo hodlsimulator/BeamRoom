@@ -5,7 +5,6 @@
 //  Created by . . on 9/27/25.
 //
 //  Viewer-side UDP media receiver: supports M3 test frames (BGRA) + M4 H.264 video.
-//
 
 import Foundation
 import Combine
@@ -17,12 +16,12 @@ private let mediaOS = Logger(subsystem: BeamConfig.subsystemViewer, category: "u
 
 private func udpIfaceTypeString(_ t: NWInterface.InterfaceType) -> String {
     switch t {
-    case .wifi: return "wifi"
-    case .cellular: return "cellular"
+    case .wifi:          return "wifi"
+    case .cellular:      return "cellular"
     case .wiredEthernet: return "wired"
-    case .loopback: return "loop"
-    case .other: return "other"
-    @unknown default: return "other"
+    case .loopback:      return "loop"
+    case .other:         return "other"
+    @unknown default:    return "other"
     }
 }
 
@@ -41,6 +40,7 @@ public final class UDPMediaClient: ObservableObject {
         public var kbps: Double = 0
         public var lastSeq: UInt32 = 0
         public var drops: UInt64 = 0
+
         public init() {}
     }
 
@@ -51,7 +51,6 @@ public final class UDPMediaClient: ObservableObject {
     private var bytesInWindow: Int = 0
     private var framesInWindow: Int = 0
     private var windowStart = Date()
-
     private var connectedKey: String?
     private var lastTarget: (host: NWEndpoint.Host, port: UInt16)?
     private var autoReconnectWanted = false
@@ -78,8 +77,14 @@ public final class UDPMediaClient: ObservableObject {
 
     // MARK: Public API
 
-    public func armAutoReconnect() { autoReconnectWanted = true }
-    public func disarmAutoReconnect() { autoReconnectWanted = false; cancelReconnect() }
+    public func armAutoReconnect() {
+        autoReconnectWanted = true
+    }
+
+    public func disarmAutoReconnect() {
+        autoReconnectWanted = false
+        cancelReconnect()
+    }
 
     public func connect(toHost host: NWEndpoint.Host, port: UInt16) {
         let key = "\(String(describing: host)):\(port)"
@@ -87,7 +92,10 @@ public final class UDPMediaClient: ObservableObject {
             BeamLog.debug("UDP connect de-dupe → already \(key)", tag: "viewer")
             return
         }
-        disconnect() // tear down any previous socket (will not schedule reconnect because we immediately reconnect)
+
+        // Tear down any previous socket (will not schedule reconnect because we immediately reconnect).
+        disconnect()
+
         lastTarget = (host, port)
 
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
@@ -96,12 +104,14 @@ public final class UDPMediaClient: ObservableObject {
         }
 
         let params = NWParameters.udp
-        params.requiredInterfaceType = .wifi
-        params.includePeerToPeer = false
+        // Allow infrastructure Wi‑Fi and peer‑to‑peer (AWDL / Wi‑Fi Aware), but avoid cellular.
+        params.includePeerToPeer = true
+        params.prohibitedInterfaceTypes = [.cellular]
 
         let c = NWConnection(host: host, port: nwPort, using: params)
         conn = c
         connectedKey = key
+
         BeamLog.info("UDP connect → \(String(describing: host)):\(port)", tag: "viewer")
 
         c.stateUpdateHandler = { [weak self] state in
@@ -144,9 +154,12 @@ public final class UDPMediaClient: ObservableObject {
     }
 
     public func disconnect() {
-        afterReadyWarnTimer?.cancel(); afterReadyWarnTimer = nil
+        afterReadyWarnTimer?.cancel()
+        afterReadyWarnTimer = nil
         stopKeepalives()
-        conn?.cancel(); conn = nil
+
+        conn?.cancel()
+        conn = nil
         connectedKey = nil
 
         lastImage = nil
@@ -167,7 +180,7 @@ public final class UDPMediaClient: ObservableObject {
 
         BeamLog.info("UDP disconnected", tag: "viewer")
 
-        // Auto-reconnect (network errors) if asked and we still know where to go
+        // Auto-reconnect (network errors) if asked and we still know where to go.
         if autoReconnectWanted, let target = lastTarget {
             scheduleReconnect(to: target)
         }
@@ -177,7 +190,9 @@ public final class UDPMediaClient: ObservableObject {
 
     private func sendHello() {
         guard let c = conn else { return }
+
         let hello = Data([0x42, 0x52, 0x48, 0x49, 0x21]) // "BRHI!"
+
         c.send(content: hello, completion: .contentProcessed { maybeErr in
             if let e = maybeErr {
                 BeamLog.error("UDP hello send error: \(e.localizedDescription)", tag: "viewer")
@@ -190,6 +205,7 @@ public final class UDPMediaClient: ObservableObject {
 
     private func receiveLoop() {
         guard let c = conn else { return }
+
         c.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
 
@@ -197,7 +213,8 @@ public final class UDPMediaClient: ObservableObject {
                 if !self.sawAnyDatagram {
                     self.sawAnyDatagram = true
                     BeamLog.info("UDP rx first datagram: \(d.count) bytes", tag: "viewer")
-                    self.afterReadyWarnTimer?.cancel(); self.afterReadyWarnTimer = nil
+                    self.afterReadyWarnTimer?.cancel()
+                    self.afterReadyWarnTimer = nil
                 }
                 self.handleDatagram(d)
             }
@@ -205,7 +222,9 @@ public final class UDPMediaClient: ObservableObject {
             if let error {
                 mediaOS.error("UDP recv error: \(error.localizedDescription, privacy: .public)")
                 BeamLog.error("UDP recv error: \(error.localizedDescription)", tag: "viewer")
-                Task { @MainActor in self.disconnect() }
+                Task { @MainActor in
+                    self.disconnect()
+                }
                 return
             }
 
@@ -214,10 +233,9 @@ public final class UDPMediaClient: ObservableObject {
     }
 
     private func handleDatagram(_ data: Data) {
-        // H.264 over UDP (M4) only. Ignore legacy M3 BGRA test frames.
-        guard let unit = assembler.ingest(datagram: data) else {
-            return
-        }
+        // H.264 over UDP (M4) only.
+        // Ignore legacy M3 BGRA test frames.
+        guard let unit = assembler.ingest(datagram: data) else { return }
 
         // Basic loss / throughput stats
         if stats.frames > 0, unit.seq > stats.lastSeq + 1 {
@@ -241,7 +259,10 @@ public final class UDPMediaClient: ObservableObject {
             BeamLog.debug(
                 String(
                     format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
-                    stats.fps, stats.kbps, stats.frames, stats.drops
+                    stats.fps,
+                    stats.kbps,
+                    stats.frames,
+                    stats.drops
                 ),
                 tag: "viewer"
             )
@@ -264,7 +285,7 @@ public final class UDPMediaClient: ObservableObject {
                 self.lastImage = cg
             }
         }
-    } 
+    }
 
     // MARK: Helpers
 
@@ -272,18 +293,22 @@ public final class UDPMediaClient: ObservableObject {
         let now = Date()
         if now.timeIntervalSince(lastSummaryAt) >= 1.0 {
             lastSummaryAt = now
+
             var bits: [String] = []
             if shortHeaderCount > 0 { bits.append("short \(shortHeaderCount)") }
             if badMagicCount > 0 { bits.append("badMagic \(badMagicCount)") }
             if badSizeCount > 0 { bits.append("badSize \(badSizeCount)") }
+
             if !bits.isEmpty {
-                BeamLog.info("UDP rx rejects: " + bits.joined(separator: " • ") + (extra != nil ? " • \(extra!)" : ""), tag: "viewer")
+                let suffix = extra.map { " • \($0)" } ?? ""
+                BeamLog.info("UDP rx rejects: " + bits.joined(separator: " • ") + suffix, tag: "viewer")
             }
         }
     }
 
     private func startAfterReadyWarnTimer(host: NWEndpoint.Host, port: UInt16) {
         afterReadyWarnTimer?.cancel()
+
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 2.0, repeating: 3.0)
         t.setEventHandler { [weak self] in
@@ -291,7 +316,8 @@ public final class UDPMediaClient: ObservableObject {
             if !self.sawAnyDatagram {
                 BeamLog.warn("UDP ready but still no datagrams from \(String(describing: host)):\(port)", tag: "viewer")
             } else {
-                self.afterReadyWarnTimer?.cancel(); self.afterReadyWarnTimer = nil
+                self.afterReadyWarnTimer?.cancel()
+                self.afterReadyWarnTimer = nil
             }
         }
         t.resume()
@@ -300,6 +326,7 @@ public final class UDPMediaClient: ObservableObject {
 
     private func startKeepalives() {
         stopKeepalives()
+
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + keepaliveInterval, repeating: keepaliveInterval)
         t.setEventHandler { [weak self] in
@@ -311,11 +338,13 @@ public final class UDPMediaClient: ObservableObject {
     }
 
     private func stopKeepalives() {
-        keepaliveTimer?.cancel(); keepaliveTimer = nil
+        keepaliveTimer?.cancel()
+        keepaliveTimer = nil
     }
 
     private func scheduleReconnect(to target: (host: NWEndpoint.Host, port: UInt16)) {
         cancelReconnect()
+
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 0.5)
         t.setEventHandler { [weak self] in
@@ -327,6 +356,7 @@ public final class UDPMediaClient: ObservableObject {
     }
 
     private func cancelReconnect() {
-        reconnectTimer?.cancel(); reconnectTimer = nil
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
     }
 }

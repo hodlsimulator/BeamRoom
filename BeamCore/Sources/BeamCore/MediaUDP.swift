@@ -8,17 +8,17 @@
 //  Also bridges the active Viewer peer (ip:port) into the App Group so the
 //  Broadcast Upload extension can stream H.264 to the Host, which then forwards
 //  to the active Viewer. Viewer keep-alives (BRHI!) maintain the mapping.
-//
 
 import Foundation
 import Network
 import OSLog
 
 public final class MediaUDP: @unchecked Sendable {
-
     public typealias ReadyHandler = @Sendable (_ udpPort: UInt16) -> Void
     public typealias ErrorHandler = @Sendable (_ error: Error) -> Void
     public typealias PeerChangedHandler = @Sendable (_ peer: String?) -> Void
+
+    // MARK: Public API
 
     public init(onPeerChanged: PeerChangedHandler? = nil) {
         self.onPeerChanged = onPeerChanged
@@ -29,15 +29,17 @@ public final class MediaUDP: @unchecked Sendable {
 
         mediaOS.notice("Media UDP starting…")
 
-        // IMPORTANT: do not restrict to .wifi — must accept 127.0.0.1 from the Upload extension.
+        // Accept datagrams from both:
+        // - the local Upload extension via 127.0.0.1, and
+        // - remote Viewers over infrastructure Wi‑Fi or peer‑to‑peer (AWDL / Wi‑Fi Aware).
         let params = NWParameters.udp
-        params.includePeerToPeer = false
+        params.includePeerToPeer = true
 
         do {
             let lis = try NWListener(using: params, on: .any) // ephemeral
             listener = lis
 
-            lis.stateUpdateHandler = { [weak self] (state: NWListener.State) in
+            lis.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 switch state {
                 case .ready:
@@ -56,7 +58,7 @@ public final class MediaUDP: @unchecked Sendable {
                 }
             }
 
-            lis.newConnectionHandler = { [weak self] (nw: NWConnection) in
+            lis.newConnectionHandler = { [weak self] nw in
                 self?.handleNewConnection(nw)
             }
 
@@ -68,27 +70,41 @@ public final class MediaUDP: @unchecked Sendable {
 
     public func stop() {
         stopTestFrames()
-        for (_, c) in conns { c.cancel() }
+
+        for (_, c) in conns {
+            c.cancel()
+        }
         conns.removeAll()
-        listener?.cancel(); listener = nil
+
+        listener?.cancel()
+        listener = nil
 
         activeKey = nil
         activeLastSeen = .distantPast
         publishActivePeer(nil)
 
-        expireTimer?.cancel(); expireTimer = nil
+        expireTimer?.cancel()
+        expireTimer = nil
 
         BeamLog.info("Media UDP stopped", tag: "host")
     }
 
     public func startTestFrames(fps: Double = 12.0, width: Int = 20, height: Int = 12) {
         guard testTimer == nil else { return }
-        m3W = width; m3H = height; m3Seq = 0
+
+        m3W = width
+        m3H = height
+        m3Seq = 0
 
         let t = DispatchSource.makeTimerSource(queue: queue)
-        let interval = DispatchTimeInterval.milliseconds(Int(1000.0 / max(1.0, fps)))
-        t.schedule(deadline: .now() + interval, repeating: interval)
-        t.setEventHandler { [weak self] in self?.tickTestFrame() }
+        let intervalMs = Int(1000.0 / max(1.0, fps))
+        t.schedule(
+            deadline: .now() + .milliseconds(intervalMs),
+            repeating: .milliseconds(intervalMs)
+        )
+        t.setEventHandler { [weak self] in
+            self?.tickTestFrame()
+        }
         t.resume()
         testTimer = t
 
@@ -96,23 +112,25 @@ public final class MediaUDP: @unchecked Sendable {
     }
 
     public func stopTestFrames() {
-        testTimer?.cancel(); testTimer = nil
+        testTimer?.cancel()
+        testTimer = nil
         BeamLog.info("Test stream STOP", tag: "host")
     }
 
-    private let queue = DispatchQueue(label: "media-udp.host")
-    private var listener: NWListener?
-    private var conns: [String: NWConnection] = [:] // "ip:port"
+    // MARK: Internals
 
-    private var activeKey: String? = nil
+    private let queue = DispatchQueue(label: "media-udp.host")
+
+    private var listener: NWListener?
+    private var conns: [String: NWConnection] = [:]     // "ip:port"
+    private var activeKey: String?
     private var activeLastSeen: Date = .distantPast
     private var expireTimer: DispatchSourceTimer?
-
     private var testTimer: DispatchSourceTimer?
+
     private var m3Seq: UInt32 = 0
     private var m3W: Int = 20
     private var m3H: Int = 12
-
     private var localPort: UInt16 = 0
 
     private let onPeerChanged: PeerChangedHandler?
@@ -124,7 +142,7 @@ public final class MediaUDP: @unchecked Sendable {
 
         let isUplink = Self.isLoopbackKey(key) // extension → host (127.0.0.1)
 
-        nw.stateUpdateHandler = { [weak self] (state: NWConnection.State) in
+        nw.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .ready:
@@ -161,6 +179,7 @@ public final class MediaUDP: @unchecked Sendable {
 
             if let d = data, !d.isEmpty {
                 if isUplink {
+                    // Only forward packets that look like H.264 wire frames.
                     if H264Wire.parseHeaderBE(d) != nil {
                         self.forwardToActivePeer(d)
                     }
@@ -177,18 +196,22 @@ public final class MediaUDP: @unchecked Sendable {
 
     private func forwardToActivePeer(_ data: Data) {
         guard let c = connForActivePeer() else { return }
+
         c.send(content: data, completion: .contentProcessed { _ in
             BeamLog.debug("UDP fwd \(data.count) bytes → \(self.activeKey ?? "?")", tag: "host")
         })
     }
 
     private func adoptActivePeer(_ key: String, sawBytes: Int? = nil) {
-        let was = activeKey
+        let previous = activeKey
         activeKey = key
         activeLastSeen = Date()
 
-        if was != key {
-            if let was { BeamLog.warn("UDP peer replaced: \(was) → \(key)", tag: "host") }
+        if previous != key {
+            if let previous {
+                BeamLog.warn("UDP peer replaced: \(previous) → \(key)", tag: "host")
+            }
+
             publishActivePeer(key)
             onPeerChanged?(key)
             startExpiryTimerIfNeeded()
@@ -205,9 +228,12 @@ public final class MediaUDP: @unchecked Sendable {
 
     private func startExpiryTimerIfNeeded() {
         guard expireTimer == nil else { return }
+
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 1.0, repeating: 1.0)
-        t.setEventHandler { [weak self] in self?.expireCheck() }
+        t.setEventHandler { [weak self] in
+            self?.expireCheck()
+        }
         t.resume()
         expireTimer = t
     }
@@ -225,6 +251,7 @@ public final class MediaUDP: @unchecked Sendable {
     private func evict(_ key: String) {
         conns[key]?.cancel()
         conns.removeValue(forKey: key)
+
         if key == activeKey {
             activeKey = nil
             publishActivePeer(nil)
@@ -246,7 +273,7 @@ public final class MediaUDP: @unchecked Sendable {
         var data = Data()
         data.reserveCapacity(12 + m3W * m3H * 4)
 
-        var magic: UInt32 = 0x424D524D
+        var magic: UInt32 = 0x424D524D // "BRMR"
         data.append(contentsOf: withUnsafeBytes(of: magic.bigEndian, Array.init))
 
         m3Seq &+= 1
@@ -259,17 +286,18 @@ public final class MediaUDP: @unchecked Sendable {
         data.append(contentsOf: withUnsafeBytes(of: hBE, Array.init))
 
         let t = Int((Date().timeIntervalSinceReferenceDate * 60).truncatingRemainder(dividingBy: 255))
+
         for y in 0..<m3H {
             for x in 0..<m3W {
                 let v = UInt8((x + y + t) % 255)
-                data.append(v)        // B
-                data.append(255 - v)  // G
-                data.append(v)        // R
-                data.append(255)      // A
+                // BGRA
+                data.append(contentsOf: [v, v, v, 255])
             }
         }
 
-        c.send(content: data, completion: .contentProcessed { _ in })
+        c.send(content: data, completion: .contentProcessed { _ in
+            BeamLog.debug("UDP test frame \(self.m3Seq) sent (\(data.count) bytes)", tag: "host")
+        })
     }
 
     private func publishActivePeer(_ key: String?) {
@@ -280,13 +308,18 @@ public final class MediaUDP: @unchecked Sendable {
         }
     }
 
+    // MARK: Key helpers
+
     private static func describeRemote(_ nw: NWConnection) -> String {
         if case let .hostPort(host, port) = nw.endpoint {
             return "\(host.debugDescription):\(port.rawValue)"
         }
-        if let ep = nw.currentPath?.remoteEndpoint, case let .hostPort(host, port) = ep {
+
+        if let ep = nw.currentPath?.remoteEndpoint,
+           case let .hostPort(host, port) = ep {
             return "\(host.debugDescription):\(port.rawValue)"
         }
+
         return "?:0"
     }
 
@@ -296,21 +329,25 @@ public final class MediaUDP: @unchecked Sendable {
     }
 
     private static func split(_ key: String) -> (String, UInt16)? {
+        // IPv6 form: "[2001:db8::1]:12345"
         if key.hasPrefix("[") {
             guard
                 let close = key.firstIndex(of: "]"),
                 let colon = key[key.index(after: close)...].lastIndex(of: ":")
-            else { return nil }
+            else {
+                return nil
+            }
+
             let host = String(key[key.index(after: key.startIndex)..<close])
-            let portStr = String(key[key.index(after: colon)...])
-            guard let p = UInt16(portStr) else { return nil }
-            return (host, p)
+            let portString = String(key[key.index(after: colon)...])
+            guard let port = UInt16(portString) else { return nil }
+            return (host, port)
         } else {
             guard let colon = key.lastIndex(of: ":") else { return nil }
             let host = String(key[..<colon])
-            let portStr = String(key[key.index(after: colon)...])
-            guard let p = UInt16(portStr) else { return nil }
-            return (host, p)
+            let portString = String(key[key.index(after: colon)...])
+            guard let port = UInt16(portString) else { return nil }
+            return (host, port)
         }
     }
 }

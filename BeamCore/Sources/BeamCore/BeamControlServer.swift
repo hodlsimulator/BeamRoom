@@ -5,7 +5,6 @@
 //  Created by . . on 9/22/25.
 //
 //  Host-side TCP control server + Bonjour + UDP media (port announce + test stream)
-//
 
 import Foundation
 import Combine
@@ -16,7 +15,9 @@ private let serverLog = Logger(subsystem: BeamConfig.subsystemHost, category: "c
 
 @MainActor
 public final class BeamControlServer: NSObject, ObservableObject {
+
     // MARK: View-facing models
+
     public struct PendingPair: Identifiable, Equatable {
         public let id: UUID
         public let connID: Int
@@ -32,20 +33,23 @@ public final class BeamControlServer: NSObject, ObservableObject {
     }
 
     // MARK: Published state
+
     @Published public private(set) var sessions: [ActiveSession] = []
     @Published public private(set) var pendingPairs: [PendingPair] = []
     @Published public private(set) var udpPeer: String? = nil
     @Published public private(set) var isStreaming: Bool = false
 
     // MARK: Configuration
+
     public var autoAccept: Bool
 
     // MARK: Internals
+
     private var listener: NWListener?
     private var netService: NetService?
     private var netServiceDelegateProxy: NetServiceDelegateProxy?
     private var republishAttempts = 0
-    private var connections: [Int : Conn] = [:]
+    private var connections: [Int: Conn] = [:]
     private var nextConnID = 1
 
     // Broadcast poll → push to clients when it changes
@@ -65,15 +69,9 @@ public final class BeamControlServer: NSObject, ObservableObject {
     public func start(serviceName: String) throws {
         guard listener == nil else { throw BeamError.alreadyRunning }
 
-        // TCP listener restricted to infrastructure Wi-Fi
-        let tcp = NWProtocolTCP.Options()
-        tcp.noDelay = true
-        let params = NWParameters(tls: nil, tcp: tcp)
-        params.includePeerToPeer = false
-        params.requiredInterfaceType = .wifi
-        params.prohibitedInterfaceTypes = [.cellular]
+        // TCP listener for control: local Wi‑Fi + peer‑to‑peer (no cellular).
+        let params = BeamTransportParameters.tcpInfraWiFi()
         let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort)!
-
         let lis = try NWListener(using: params, on: port)
         listener = lis
 
@@ -86,7 +84,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     BeamLog.info("Host listener state=ready", tag: "host")
                 case .failed(let err):
                     BeamLog.error("Host listener failed: \(err.localizedDescription)", tag: "host")
-                default: break
+                default:
+                    break
                 }
             }
         }
@@ -94,7 +93,8 @@ public final class BeamControlServer: NSObject, ObservableObject {
         lis.newConnectionHandler = { [weak self] nw in
             Task { @MainActor in
                 guard let self else { return }
-                let id = self.nextConnID; self.nextConnID += 1
+                let id = self.nextConnID
+                self.nextConnID += 1
                 let c = Conn(id: id, nw: nw, server: self)
                 self.connections[id] = c
                 c.start()
@@ -121,6 +121,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 }
             }
         )
+
         self.media = media
 
         media.start(
@@ -129,6 +130,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
                     guard let self else { return }
                     BeamLog.info("Media UDP ready on port \(udpPort)", tag: "host")
                     BeamConfig.setBroadcastUDPPort(udpPort)
+
                     // Push MediaParams to all paired clients
                     for conn in self.connections.values where conn.sessionID != nil {
                         conn.sendMediaParams(udpPort: udpPort)
@@ -150,15 +152,20 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
     public func stop() {
         stopBroadcastPoll()
-        media?.stop(); media = nil
+        media?.stop()
+        media = nil
         isStreaming = false
         udpPeer = nil
 
         // Close children first
-        for (_, c) in connections { c.close() }
+        for (_, c) in connections {
+            c.close()
+        }
         connections.removeAll()
 
-        listener?.cancel(); listener = nil
+        listener?.cancel()
+        listener = nil
+
         unpublishBonjour()
     }
 
@@ -196,22 +203,39 @@ public final class BeamControlServer: NSObject, ObservableObject {
     func acceptConnection(_ conn: Conn, code: String) {
         // Idempotent: if this connection already has a session, just re-ack and push state.
         if let existing = conn.sessionID {
-            conn.sendHandshake(ok: true, sessionID: existing, message: "Already paired", udpPort: BeamConfig.getBroadcastUDPPort())
-            if let udp = BeamConfig.getBroadcastUDPPort() { conn.sendMediaParams(udpPort: udp) }
+            conn.sendHandshake(
+                ok: true,
+                sessionID: existing,
+                message: "Already paired",
+                udpPort: BeamConfig.getBroadcastUDPPort()
+            )
+            if let udp = BeamConfig.getBroadcastUDPPort() {
+                conn.sendMediaParams(udpPort: udp)
+            }
             conn.sendBroadcast(hasOn: BeamConfig.isBroadcastOn())
             return
         }
 
-        if let pid = conn.pendingPairID { removePending(pid) }
+        if let pid = conn.pendingPairID {
+            removePending(pid)
+        }
 
         let sid = UUID()
         conn.sessionID = sid
-        sessions.append(ActiveSession(id: sid, remoteDescription: conn.remoteDescription, startedAt: Date()))
+        sessions.append(
+            ActiveSession(
+                id: sid,
+                remoteDescription: conn.remoteDescription,
+                startedAt: Date()
+            )
+        )
 
         // Handshake response with udpPort if known
         let udpPort = BeamConfig.getBroadcastUDPPort()
         conn.sendHandshake(ok: true, sessionID: sid, message: nil, udpPort: udpPort)
-        if let udp = udpPort { conn.sendMediaParams(udpPort: udp) }
+        if let udp = udpPort {
+            conn.sendMediaParams(udpPort: udp)
+        }
         conn.sendBroadcast(hasOn: BeamConfig.isBroadcastOn())
     }
 
@@ -220,6 +244,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         if let old = conn.pendingPairID {
             pendingPairs.removeAll { $0.id == old }
         }
+
         let p = PendingPair(
             id: UUID(),
             connID: conn.id,
@@ -227,14 +252,19 @@ public final class BeamControlServer: NSObject, ObservableObject {
             remoteDescription: conn.remoteDescription,
             requestedAt: Date()
         )
+
         conn.pendingPairID = p.id
         conn.pendingCode = code
         pendingPairs.append(p)
     }
 
     func connectionClosed(_ conn: Conn) {
-        if let sid = conn.sessionID { sessions.removeAll { $0.id == sid } }
-        if let pid = conn.pendingPairID { pendingPairs.removeAll { $0.id == pid } }
+        if let sid = conn.sessionID {
+            sessions.removeAll { $0.id == sid }
+        }
+        if let pid = conn.pendingPairID {
+            pendingPairs.removeAll { $0.id == pid }
+        }
         connections.removeValue(forKey: conn.id)
     }
 
@@ -253,6 +283,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
     private func publishBonjour(name: String, type: String, port: Int) {
         unpublishBonjour()
+
         let svcType = type.hasSuffix(".") ? type : type + "."
         let ns = NetService(domain: "local.", type: svcType, name: name, port: Int32(port))
         ns.includesPeerToPeer = true
@@ -278,6 +309,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
                 }
             }
         )
+
         netServiceDelegateProxy = proxy
         ns.delegate = proxy
         self.netService = ns
@@ -296,6 +328,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
     private func startBroadcastPoll() {
         stopBroadcastPoll()
+
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 1, repeating: 1)
         t.setEventHandler { [weak self] in
@@ -324,7 +357,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
 private final class NetServiceDelegateProxy: NSObject, NetServiceDelegate {
     typealias PublishedHandler = (NetService) -> Void
-    typealias DidNotPublishHandler = (NetService, [String : NSNumber]) -> Void
+    typealias DidNotPublishHandler = (NetService, [String: NSNumber]) -> Void
 
     private let onPublished: PublishedHandler?
     private let onDidNotPublish: DidNotPublishHandler?
@@ -335,6 +368,11 @@ private final class NetServiceDelegateProxy: NSObject, NetServiceDelegate {
         super.init()
     }
 
-    func netServiceDidPublish(_ sender: NetService) { onPublished?(sender) }
-    func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) { onDidNotPublish?(sender, errorDict) }
+    func netServiceDidPublish(_ sender: NetService) {
+        onPublished?(sender)
+    }
+
+    func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
+        onDidNotPublish?(sender, errorDict)
+    }
 }
