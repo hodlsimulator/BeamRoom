@@ -1,8 +1,8 @@
 //
-//  ViewerRootView.swift
-//  BeamRoomViewer
+// ViewerRootView.swift
+// BeamRoomViewer
 //
-//  Created by . . on 9/21/25.
+// Created by . . on 9/21/25.
 //
 
 import SwiftUI
@@ -49,7 +49,6 @@ final class ViewerViewModel: ObservableObject {
         do {
             try browser.start()
 
-            // If nothing appears after a short delay, hint about permissions.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 if self.browser.hosts.isEmpty {
@@ -116,9 +115,7 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        let updated = browser.hosts.first {
-            $0.endpoint.debugDescription == sel.endpoint.debugDescription
-        } ?? sel
+        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
 
         if let pref = updated.preferredEndpoint,
            case let .hostPort(host: h, port: _) = pref {
@@ -186,8 +183,10 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Watch")
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .tabBar)
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden,
+                     for: .navigationBar)
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden,
+                     for: .tabBar)
             .toolbar {
                 if model.media.lastImage == nil {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -205,6 +204,7 @@ struct ViewerRootView: View {
             }
             .onDisappear {
                 model.stopDiscovery()
+                updateIdleTimer(forHasVideo: false)
             }
             .onChange(of: model.browser.hosts) { _, _ in
                 model.autoConnectIfNeeded()
@@ -220,7 +220,12 @@ struct ViewerRootView: View {
                 }
             }
             .onChange(of: model.media.lastImage) { _, img in
-                if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
+                let hasVideo = (img != nil)
+                updateIdleTimer(forHasVideo: hasVideo)
+
+                if hasVideo,
+                   model.showPairSheet,
+                   !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
                     model.showPairSheet = false
                 }
@@ -242,6 +247,14 @@ struct ViewerRootView: View {
 // MARK: - Layout helpers
 
 private extension ViewerRootView {
+
+    func updateIdleTimer(forHasVideo hasVideo: Bool) {
+        let desired = hasVideo
+        if UIApplication.shared.isIdleTimerDisabled != desired {
+            UIApplication.shared.isIdleTimerDisabled = desired
+        }
+    }
+
     // Idle state before any video arrives.
     var idleStateView: some View {
         VStack(spacing: 28) {
@@ -680,7 +693,8 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                if case .paired = model.client.status, model.client.broadcastOn {
+                if case .paired = model.client.status,
+                   model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }

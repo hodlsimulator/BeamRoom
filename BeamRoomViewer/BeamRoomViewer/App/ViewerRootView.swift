@@ -1,8 +1,8 @@
 //
-//  ViewerRootView.swift
-//  BeamRoomViewer
+// ViewerRootView.swift
+// BeamRoomViewer
 //
-//  Created by . . on 9/21/25.
+// Created by . . on 9/21/25.
 //
 
 import SwiftUI
@@ -37,6 +37,7 @@ final class ViewerViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
+        // Propagate media changes into the SwiftUI tree.
         media.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -80,7 +81,10 @@ final class ViewerViewModel: ObservableObject {
         case .idle, .failed:
             client.connect(to: host, code: code)
         default:
-            BeamLog.warn("Pair tap ignored; client.status=\(String(describing: client.status))", tag: "viewer")
+            BeamLog.warn(
+                "Pair tap ignored; client.status=\(String(describing: client.status))",
+                tag: "viewer"
+            )
         }
     }
 
@@ -108,7 +112,8 @@ final class ViewerViewModel: ObservableObject {
 
         guard case .paired(_, let maybePort) = client.status,
               let udpPort = maybePort,
-              let sel = selectedHost else {
+              let sel = selectedHost
+        else {
             return
         }
 
@@ -148,10 +153,7 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first,
-              browser.hosts.count == 1 else {
-            return
-        }
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -183,8 +185,10 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Viewer")
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden,
+                     for: .navigationBar)
             .toolbar {
+                #if DEBUG
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showLogs = true
@@ -193,12 +197,14 @@ struct ViewerRootView: View {
                     }
                     .accessibilityLabel("Show logs")
                 }
+                #endif
             }
             .task {
                 model.startDiscovery()
             }
             .onDisappear {
                 model.stopDiscovery()
+                updateIdleTimer(forHasVideo: false)
             }
             .onChange(of: model.browser.hosts) { _, _ in
                 model.autoConnectIfNeeded()
@@ -214,7 +220,12 @@ struct ViewerRootView: View {
                 }
             }
             .onChange(of: model.media.lastImage) { _, img in
-                if img != nil, model.showPairSheet, !autoDismissedOnFirstFrame {
+                let hasVideo = (img != nil)
+                updateIdleTimer(forHasVideo: hasVideo)
+
+                if hasVideo,
+                   model.showPairSheet,
+                   !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
                     model.showPairSheet = false
                 }
@@ -226,6 +237,7 @@ struct ViewerRootView: View {
             .sheet(isPresented: $model.showAwareSheet) {
                 awarePickSheet()
             }
+            #if DEBUG
             .sheet(isPresented: $showLogs) {
                 NavigationStack {
                     BeamLogView()
@@ -239,6 +251,7 @@ struct ViewerRootView: View {
                         }
                 }
             }
+            #endif
         }
     }
 }
@@ -246,6 +259,15 @@ struct ViewerRootView: View {
 // MARK: - Layout helpers
 
 private extension ViewerRootView {
+
+    /// Keeps the device awake while there is live video on screen.
+    func updateIdleTimer(forHasVideo hasVideo: Bool) {
+        let desired = hasVideo
+        if UIApplication.shared.isIdleTimerDisabled != desired {
+            UIApplication.shared.isIdleTimerDisabled = desired
+        }
+    }
+
     // Idle state before any video arrives.
     var idleStateView: some View {
         VStack(spacing: 28) {
@@ -331,9 +353,15 @@ private extension ViewerRootView {
         if count == 0 {
             return "Once a Host on this network starts sharing, it appears here."
         } else if count == 1 {
-            return "Found 1 nearby Host. Connect to start watching."
+            return """
+            Found 1 nearby Host.
+            Connect to start watching.
+            """
         } else {
-            return "Found \(count) nearby Hosts. Choose one to start watching."
+            return """
+            Found \(count) nearby Hosts.
+            Choose one to start watching.
+            """
         }
     }
 
@@ -358,6 +386,7 @@ private extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .opacity(0.9)
+
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -380,6 +409,7 @@ private extension ViewerRootView {
         VStack(spacing: 8) {
             ProgressView()
                 .tint(.white)
+
             Text("Looking for nearby Hosts on this network…")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -482,22 +512,18 @@ private extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
-
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.green)
-
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
@@ -587,6 +613,7 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
+
                     Text(host.name)
                         .font(.title3)
                         .bold()
