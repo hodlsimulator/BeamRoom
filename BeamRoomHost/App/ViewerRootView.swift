@@ -217,6 +217,9 @@ struct ViewerRootView: View {
             .onChange(of: model.client.broadcastOn) { _, on in
                 if on {
                     model.maybeStartMedia()
+                } else {
+                    model.media.disarmAutoReconnect()
+                    model.media.disconnect()
                 }
             }
             .onChange(of: model.media.lastImage) { _, img in

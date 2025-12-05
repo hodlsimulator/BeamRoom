@@ -216,7 +216,13 @@ struct ViewerRootView: View {
             }
             .onChange(of: model.client.broadcastOn) { _, on in
                 if on {
+                    // Broadcast turned ON → start or restart UDP media.
                     model.maybeStartMedia()
+                } else {
+                    // Broadcast turned OFF → drop UDP media cleanly so the Viewer
+                    // shows idle state instead of a frozen last frame.
+                    model.media.disarmAutoReconnect()
+                    model.media.disconnect()
                 }
             }
             .onChange(of: model.media.lastImage) { _, img in

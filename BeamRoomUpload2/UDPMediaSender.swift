@@ -4,9 +4,9 @@
 //
 //  Created by . . on 10/31/25.
 //
-// Broadcast Upload extension → sends AVCC H.264 over UDP to the Host’s
-// MediaUDP listener on 127.0.0.1:broadcastUDPPort. The Host then forwards
-// to the active Viewer peer.
+//  Broadcast Upload extension → sends AVCC H.264 over UDP to the Host’s
+//  MediaUDP listener on 127.0.0.1:broadcastUDPPort. The Host then forwards
+//  to the active Viewer peer.
 //
 
 import Foundation
@@ -15,6 +15,7 @@ import OSLog
 import BeamCore
 
 actor UDPMediaSender {
+
     // MARK: - Singleton
 
     static let shared = UDPMediaSender()
@@ -32,6 +33,7 @@ actor UDPMediaSender {
 
     /// Conservative payload to avoid IP fragmentation on Wi‑Fi.
     private let maxUDPPayload = 1200
+
     /// Fixed H264Wire header size (big‑endian encoding).
     private let fixedHeaderBytes = 20
 
@@ -64,11 +66,9 @@ actor UDPMediaSender {
 
         var cfg = Data()
         var flags = H264Wire.Flags()
-
         if isKeyframe {
             flags.insert(.keyframe)
         }
-
         if isKeyframe, let ps = paramSets {
             cfg = H264Wire.encodeParamSets(ps)
             if !cfg.isEmpty {
@@ -99,11 +99,9 @@ actor UDPMediaSender {
             )
 
             var pkt = encodeHeaderBE(h)
-
             if !cfg.isEmpty {
                 pkt.append(cfg)
             }
-
             if chunk0 > 0 {
                 pkt.append(avcc.prefix(chunk0))
             }
@@ -122,7 +120,6 @@ actor UDPMediaSender {
 
         while sent < avcc.count {
             let n = min(perPart, avcc.count - sent)
-
             let h = H264Wire.Header(
                 seq: seq,
                 partIndex: idx,
@@ -155,9 +152,9 @@ actor UDPMediaSender {
     // MARK: - Connection management
 
     private func ensureConnection() async -> Bool {
-        if conn == nil {
-            await reconnectIfNeeded(reason: "no-conn")
-        }
+        // Always re-evaluate the destination. If the Host has restarted and
+        // picked a new UDP port, this will detect the change and reconnect.
+        await reconnectIfNeeded(reason: conn == nil ? "no-conn" : "tick")
         return conn != nil
     }
 
@@ -174,6 +171,7 @@ actor UDPMediaSender {
            cur.host == dest.host,
            cur.port == dest.port,
            conn != nil {
+            // Destination unchanged and connection is alive.
             return
         }
 
@@ -211,17 +209,18 @@ actor UDPMediaSender {
                 self.log.notice(
                     "UDP uplink ready → \(dest.host, privacy: .public):\(dest.port)"
                 )
-
             case .failed(let err):
                 self.log.error(
                     "UDP uplink failed: \(err.localizedDescription, privacy: .public)"
                 )
-                Task { await self.stop() }
-
+                Task {
+                    await self.stop()
+                }
             case .cancelled:
                 self.log.notice("UDP uplink cancelled")
-                Task { await self.stop() }
-
+                Task {
+                    await self.stop()
+                }
             default:
                 break
             }
