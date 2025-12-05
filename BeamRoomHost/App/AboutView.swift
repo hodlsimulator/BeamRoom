@@ -42,7 +42,7 @@ struct AboutView: View {
             Text("BeamRoom")
                 .font(.largeTitle.bold())
 
-            Text("Quick, local screen sharing between iPhone and iPad on the same network.")
+            Text("Share your iPhone or iPad screen straight to another device nearby. No accounts, no cables.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -53,24 +53,33 @@ struct AboutView: View {
             Text("What BeamRoom does")
                 .font(.headline)
 
-            Text("""
-BeamRoom mirrors the screen of a Host device to one or more Viewer devices nearby. Everything runs on the local network, with no accounts and no internet dependency.
-""")
-                .font(.body)
+            Text(
+                """
+                BeamRoom takes the screen from one device (the Host) and shows it live on one or more other devices (the Viewers) in the same place.
+
+                It can work on normal home Wi-Fi, on a personal hotspot, or even with no router at all, as long as Wi-Fi is switched on for both devices.
+                """
+            )
+            .font(.body)
         }
     }
 
     private var useCasesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Examples")
+            Text("Ideas for using BeamRoom")
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Playtesting a game together on the sofa.")
-                bullet("Walking a family member through an app or settings page.")
-                bullet("Previewing an iOS build on a second device while adjusting layouts.")
+                bullet("Playtesting a game together on the sofa while one person controls it.")
+                bullet("Helping a family member use an app or change a setting while they just watch.")
+                bullet("Checking how an iOS build looks on a second device without passing phones around.")
                 bullet("Practising a talk by mirroring an iPad to an iPhone across the room.")
-                bullet("Sharing a diagram or sketch from a tablet during a quick discussion.")
+                bullet("Sharing a quick sketch or diagram from a tablet during a chat.")
+                bullet("Watching your own phone on another screen while it is on a stand across the room.")
+                bullet("Letting a child watch a video on an iPad while the phone doing the streaming stays with you.")
+                bullet("Comparing colours, fonts or layouts on two different screens at the same time.")
+                bullet("Showing a step-by-step how-to to a friend in a café without handing over your phone.")
+                bullet("Walking through screenshots, mock-ups or a prototype with someone sitting beside you.")
             }
         }
     }
@@ -83,7 +92,7 @@ BeamRoom mirrors the screen of a Host device to one or more Viewer devices nearb
             VStack(spacing: 16) {
                 ExampleDiagram(
                     title: "One-to-one",
-                    description: "A single Host mirrors its screen to one nearby Viewer on the same Wi‑Fi.",
+                    description: "A single Host mirrors its screen to one nearby Viewer. Good for help and quick demos.",
                     leftIcon: "iphone",
                     leftTitle: "Host",
                     leftSubtitle: "Sharing the screen",
@@ -94,7 +103,7 @@ BeamRoom mirrors the screen of a Host device to one or more Viewer devices nearb
 
                 ExampleDiagram(
                     title: "Around the table",
-                    description: "An iPad in the centre shares to a phone so text can be read more comfortably.",
+                    description: "An iPad in the middle shares to a phone so someone can see text or drawings more clearly.",
                     leftIcon: "ipad",
                     leftTitle: "Host iPad",
                     leftSubtitle: "Drawing or browsing",
@@ -105,13 +114,46 @@ BeamRoom mirrors the screen of a Host device to one or more Viewer devices nearb
 
                 ExampleDiagram(
                     title: "Practice session",
-                    description: "A presenter rehearses a slide deck from an iPad while a Viewer in another spot follows along.",
+                    description: "A presenter rehearses a slide deck on an iPad while a Viewer in another spot follows along.",
                     leftIcon: "ipad",
                     leftTitle: "Presenter",
                     leftSubtitle: "Slides on screen",
                     rightIcon: "iphone",
                     rightTitle: "Listener",
                     rightSubtitle: "Following along"
+                )
+
+                ExampleDiagram(
+                    title: "Coach and learner",
+                    description: "One person taps through menus on their phone while the other watches and learns on a second device.",
+                    leftIcon: "iphone",
+                    leftTitle: "Coach",
+                    leftSubtitle: "Tapping through steps",
+                    rightIcon: "iphone",
+                    rightTitle: "Learner",
+                    rightSubtitle: "Watching calmly"
+                )
+
+                ExampleDiagram(
+                    title: "Parent and child",
+                    description: "A parent keeps the Host phone, but the child watches the mirrored screen on an iPad.",
+                    leftIcon: "iphone",
+                    leftTitle: "Parent",
+                    leftSubtitle: "Controls playback",
+                    rightIcon: "ipad",
+                    rightTitle: "Child",
+                    rightSubtitle: "Watches on iPad"
+                )
+
+                ExampleDiagram(
+                    title: "Desk and sofa",
+                    description: "A phone on a stand acts as the Host, sending the screen to a Viewer in a more comfortable spot.",
+                    leftIcon: "iphone",
+                    leftTitle: "Desk phone",
+                    leftSubtitle: "On a stand",
+                    rightIcon: "iphone",
+                    rightTitle: "Sofa phone",
+                    rightSubtitle: "Comfortable view"
                 )
             }
         }
@@ -122,12 +164,16 @@ BeamRoom mirrors the screen of a Host device to one or more Viewer devices nearb
             Text("How it works")
                 .font(.headline)
 
-            Text("""
-The Share tab turns a device into a Host and advertises it on the local network.
+            Text(
+                """
+                • The Share tab makes your device the Host.
+                • The Watch tab looks for Hosts nearby and connects to one of them.
+                • Once paired, starting a Screen Broadcast sends live video from the Host to the Viewer.
 
-The Watch tab discovers nearby Hosts and pairs with one of them. Once paired, a Screen Broadcast started from Control Centre or from the Share tab sends video frames from the Host to the Viewer.
-""")
-                .font(.body)
+                BeamRoom does not need a full home network. It works when both devices have Wi-Fi turned on and are close to each other. A normal router, a hotspot, or a direct wireless link between the devices all work.
+                """
+            )
+            .font(.body)
         }
     }
 
@@ -136,14 +182,16 @@ The Watch tab discovers nearby Hosts and pairs with one of them. Once paired, a 
             Text("Privacy")
                 .font(.headline)
 
-            Text("""
-BeamRoom is designed for local use:
+            Text(
+                """
+                BeamRoom is built for nearby, in-person use:
 
-• No accounts.
-• No remote servers.
-• Traffic stays on the local network between Host and Viewer devices.
-""")
-                .font(.body)
+                • No accounts.
+                • No remote servers.
+                • Screen data is sent only between the Host and Viewer devices.
+                """
+            )
+            .font(.body)
         }
     }
 
@@ -163,9 +211,11 @@ BeamRoom is designed for local use:
 struct ExampleDiagram: View {
     let title: String
     let description: String
+
     let leftIcon: String
     let leftTitle: String
     let leftSubtitle: String
+
     let rightIcon: String
     let rightTitle: String
     let rightSubtitle: String
