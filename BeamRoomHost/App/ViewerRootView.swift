@@ -80,7 +80,10 @@ final class ViewerViewModel: ObservableObject {
         case .idle, .failed:
             client.connect(to: host, code: code)
         default:
-            BeamLog.warn("Pair tap ignored; client.status=\(String(describing: client.status))", tag: "viewer")
+            BeamLog.warn(
+                "Pair tap ignored; client.status=\(String(describing: client.status))",
+                tag: "viewer"
+            )
         }
     }
 
@@ -168,7 +171,7 @@ final class ViewerViewModel: ObservableObject {
 
 struct ViewerRootView: View {
     @StateObject private var model = ViewerViewModel()
-    @State private var showLogs = false
+    @State private var showAbout = false
     @State private var autoDismissedOnFirstFrame = false
 
     var body: some View {
@@ -189,11 +192,11 @@ struct ViewerRootView: View {
                 if model.media.lastImage == nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            showLogs = true
+                            showAbout = true
                         } label: {
-                            Image(systemName: "doc.text.magnifyingglass")
+                            Image(systemName: "info.circle")
                         }
-                        .accessibilityLabel("Show logs")
+                        .accessibilityLabel("About BeamRoom")
                     }
                 }
             }
@@ -229,18 +232,8 @@ struct ViewerRootView: View {
             .sheet(isPresented: $model.showAwareSheet) {
                 awarePickSheet()
             }
-            .sheet(isPresented: $showLogs) {
-                NavigationStack {
-                    BeamLogView()
-                        .navigationTitle("Logs")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") {
-                                    showLogs = false
-                                }
-                            }
-                        }
-                }
+            .sheet(isPresented: $showAbout) {
+                AboutView()
             }
         }
     }
@@ -489,22 +482,18 @@ private extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
-
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.green)
-
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
@@ -533,7 +522,7 @@ private extension ViewerRootView {
                 },
                 fallback: {
                     VStack(spacing: 12) {
-                        Text("Wi-Fi Aware not available.")
+                        Text("Wi‑Fi Aware not available.")
                         Button("Close") {
                             model.showAwareSheet = false
                         }
@@ -545,7 +534,7 @@ private extension ViewerRootView {
             )
         } else {
             VStack(spacing: 12) {
-                Text("Wi-Fi Aware service not available.")
+                Text("Wi‑Fi Aware service not available.")
                 Button("Close") {
                     model.showAwareSheet = false
                 }
@@ -556,7 +545,7 @@ private extension ViewerRootView {
         }
         #else
         VStack(spacing: 12) {
-            Text("Wi-Fi Aware UI is not available on this build configuration.")
+            Text("Wi‑Fi Aware UI is not available on this build configuration.")
             Button("Close") {
                 model.showAwareSheet = false
             }

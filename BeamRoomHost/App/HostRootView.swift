@@ -129,6 +129,7 @@ final class HostViewModel: ObservableObject {
                 }
             }
         }
+
         timer.resume()
         broadcastPoll = timer
     }
@@ -144,7 +145,7 @@ final class HostViewModel: ObservableObject {
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
     @StateObject private var broadcastController = BroadcastLaunchController()
-    @State private var showingLogs = false
+    @State private var showingAbout = false
 
     var body: some View {
         NavigationStack {
@@ -158,29 +159,19 @@ struct HostRootView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingLogs = true
+                        showingAbout = true
                     } label: {
-                        Image(systemName: "list.bullet.rectangle")
+                        Image(systemName: "info.circle")
                     }
-                    .accessibilityLabel("Show logs")
+                    .accessibilityLabel("About BeamRoom")
                 }
             }
         }
-        .sheet(isPresented: $showingLogs) {
-            NavigationStack {
-                BeamLogView()
-                    .navigationTitle("Logs")
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") {
-                                showingLogs = false
-                            }
-                        }
-                    }
-            }
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
         }
         .onAppear {
-            // If a Broadcast is already running (e.g. started from Control Centre),
+            // If a Broadcast is already running (for example started from Control Centre),
             // automatically start hosting so Viewers can connect without extra taps.
             if model.broadcastOn, !model.started {
                 model.toggleServer()
@@ -208,7 +199,7 @@ struct HostRootView: View {
                         Text("Step 2 of 2 • Start Screen Broadcast")
                             .font(.headline)
 
-                        Text("Start the Screen Broadcast so your screen is mirrored to paired Viewers.")
+                        Text("Start the Screen Broadcast so the screen is mirrored to paired Viewers.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -308,7 +299,7 @@ struct HostRootView: View {
                 .buttonStyle(.bordered)
 
                 Text(
-                    "If the sheet doesn’t appear, open Control Centre, long-press Screen Recording, choose “BeamRoom”, then tap Start Broadcast."
+                    "If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose “BeamRoom”, then tap Start Broadcast."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -370,6 +361,7 @@ struct HostRootView: View {
 
     private var viewerCountLabel: String {
         let count = model.sessions.count
+
         switch count {
         case 0:
             return "No viewers"
@@ -435,7 +427,7 @@ struct BroadcastPickerShim: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView()
         picker.showsMicrophoneButton = true
-        // Let the system show all upload extensions; user picks the BeamRoom upload extension.
+        // Let the system show all upload extensions; selection is made from the list.
         picker.preferredExtension = nil
         controller.pickerView = picker
         return picker
