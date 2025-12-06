@@ -4,7 +4,8 @@
 //
 //  Created by . . on 9/27/25.
 //
-//  Viewer-side UDP media receiver: supports M3 test frames (BGRA) + M4 H.264 video.
+//  Viewer-side UDP media receiver: supports M4 H.264 video.
+//
 
 import Foundation
 import Combine
@@ -19,22 +20,20 @@ private let mediaOS = Logger(
 
 private func udpIfaceTypeString(_ t: NWInterface.InterfaceType) -> String {
     switch t {
-    case .wifi:          return "wifi"
-    case .cellular:      return "cellular"
-    case .wiredEthernet: return "wired"
-    case .loopback:      return "loop"
-    case .other:         return "other"
-    @unknown default:    return "other"
+    case .wifi:           return "wifi"
+    case .cellular:       return "cellular"
+    case .wiredEthernet:  return "wired"
+    case .loopback:       return "loop"
+    case .other:          return "other"
+    @unknown default:     return "other"
     }
 }
 
 private func udpPathSummary(_ path: NWPath?) -> String {
     guard let p = path else { return "path=?" }
-
     let ifs = p.availableInterfaces
         .map { udpIfaceTypeString($0.type) }
         .joined(separator: ",")
-
     let ok = (p.status == .satisfied) ? "ok" : "fail"
     return "path=\(ok),ifs=\(ifs)"
 }
@@ -60,7 +59,6 @@ public final class UDPMediaClient: ObservableObject {
     // MARK: - Connection state
 
     private var conn: NWConnection?
-
     private var bytesInWindow: Int = 0
     private var framesInWindow: Int = 0
     private var windowStart = Date()
@@ -111,7 +109,6 @@ public final class UDPMediaClient: ObservableObject {
     /// then connects to the new destination.
     public func connect(toHost host: NWEndpoint.Host, port: UInt16) {
         let key = "\(String(describing: host)):\(port)"
-
         if connectedKey == key {
             BeamLog.debug("UDP connect de-dupe → already \(key)", tag: "viewer")
             return
@@ -132,7 +129,7 @@ public final class UDPMediaClient: ObservableObject {
         }
 
         let params = NWParameters.udp
-        // Allow infra Wi-Fi + peer-to-peer (AWDL / Wi-Fi Aware), avoid cellular.
+        // Allow infra Wi‑Fi + peer-to-peer (AWDL / Wi‑Fi Aware), avoid cellular.
         params.includePeerToPeer = true
         params.prohibitedInterfaceTypes = [.cellular]
 
@@ -156,7 +153,6 @@ public final class UDPMediaClient: ObservableObject {
             case .ready:
                 mediaOS.info("UDP ready → \(String(describing: host)):\(port)")
                 BeamLog.info("UDP state=ready (\(ps)) → send hello & recv", tag: "viewer")
-
                 Task { @MainActor in
                     self.sendHello()
                     self.startAfterReadyWarnTimer(host: host, port: port)
@@ -186,6 +182,22 @@ public final class UDPMediaClient: ObservableObject {
                     "UDP state=\(String(describing: state)) (\(ps))",
                     tag: "viewer"
                 )
+            }
+        }
+
+        // NEW: react to path changes (e.g. after a phone call or Wi‑Fi blip).
+        c.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let summary = udpPathSummary(path)
+            mediaOS.debug("UDP pathUpdate → \(summary)")
+
+            // If the path is no longer satisfied, tear down and let the existing
+            // auto-reconnect logic bring the socket back on a fresh path.
+            if path.status == .unsatisfied {
+                BeamLog.warn("UDP path unsatisfied; forcing reconnect (\(summary))", tag: "viewer")
+                Task { @MainActor in
+                    self.disconnectInternal(scheduleReconnect: true)
+                }
             }
         }
 
@@ -233,8 +245,8 @@ public final class UDPMediaClient: ObservableObject {
 
         // Only schedule auto-reconnect on error-driven teardown.
         if shouldReconnect, autoReconnectWanted, let target = lastTarget {
-                scheduleReconnect(to: target)
-            }
+            scheduleReconnect(to: target)
+        }
     }
 
     // MARK: - IO
@@ -297,14 +309,13 @@ public final class UDPMediaClient: ObservableObject {
 
     private func handleDatagram(_ data: Data) {
         // H.264 over UDP (M4) only. Ignore legacy M3 BGRA test frames.
-        guard let unit = assembler.ingest(datagram: data) else {
-            return
-        }
+        guard let unit = assembler.ingest(datagram: data) else { return }
 
         // Loss / throughput stats
         if stats.frames > 0, unit.seq > stats.lastSeq + 1 {
             stats.drops += UInt64(unit.seq - stats.lastSeq - 1)
         }
+
         stats.lastSeq = unit.seq
         stats.frames &+= 1
 
@@ -316,7 +327,6 @@ public final class UDPMediaClient: ObservableObject {
         if elapsed >= 1.0 {
             stats.fps = Double(framesInWindow) / elapsed
             stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
-
             windowStart = now
             bytesInWindow = 0
             framesInWindow = 0
@@ -348,7 +358,6 @@ public final class UDPMediaClient: ObservableObject {
                         tag: "viewer"
                     )
                 }
-
                 self.lastImage = cg
             }
         }
@@ -362,9 +371,16 @@ public final class UDPMediaClient: ObservableObject {
             lastSummaryAt = now
 
             var bits: [String] = []
-            if shortHeaderCount > 0 { bits.append("short \(shortHeaderCount)") }
-            if badMagicCount > 0  { bits.append("badMagic \(badMagicCount)") }
-            if badSizeCount > 0   { bits.append("badSize \(badSizeCount)") }
+
+            if shortHeaderCount > 0 {
+                bits.append("short \(shortHeaderCount)")
+            }
+            if badMagicCount > 0 {
+                bits.append("badMagic \(badMagicCount)")
+            }
+            if badSizeCount > 0 {
+                bits.append("badSize \(badSizeCount)")
+            }
 
             if !bits.isEmpty {
                 let suffix = extra.map { " • \($0)" } ?? ""
@@ -383,7 +399,6 @@ public final class UDPMediaClient: ObservableObject {
         t.schedule(deadline: .now() + 2.0, repeating: 3.0)
         t.setEventHandler { [weak self] in
             guard let self else { return }
-
             if !self.sawAnyDatagram {
                 BeamLog.warn(
                     "UDP ready but still no datagrams from \(String(describing: host)):\(port)",
