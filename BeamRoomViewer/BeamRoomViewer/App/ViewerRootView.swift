@@ -92,6 +92,9 @@ final class ViewerViewModel: ObservableObject {
         client.disconnect()
         media.disarmAutoReconnect()
         media.disconnect()
+        // Treat this as a full reset so a later Host restart behaves like a fresh session.
+        selectedHost = nil
+        hasAutoConnectedToPrimaryHost = false
         showPairSheet = false
     }
 
@@ -105,16 +108,15 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func maybeStartMedia() {
+        // Only start UDP when the Host says the broadcast is ON.
         guard client.broadcastOn else {
             BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
             return
         }
 
-        guard
-            case .paired(_, let maybePort) = client.status,
-            let udpPort = maybePort,
-            let selected = selectedHost
-        else {
+        guard case .paired(_, let maybePort) = client.status,
+              let udpPort = maybePort,
+              let selected = selectedHost else {
             return
         }
 
@@ -160,7 +162,9 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else {
+            return
+        }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -212,7 +216,13 @@ struct ViewerRootView: View {
                 model.stopDiscovery()
                 updateIdleTimer(forHasVideo: false)
             }
-            .onChange(of: model.browser.hosts) { _, _ in
+            .onChange(of: model.browser.hosts) { _, newHosts in
+                // If the Host disappeared completely, clear selection so the next
+                // appearance is treated as a fresh session and auto‑connect can run.
+                if newHosts.isEmpty {
+                    model.selectedHost = nil
+                    model.hasAutoConnectedToPrimaryHost = false
+                }
                 model.autoConnectIfNeeded()
             }
             .onChange(of: model.client.status) { _, newStatus in
@@ -223,9 +233,12 @@ struct ViewerRootView: View {
 
                 case .failed, .idle:
                     // Lost contact with Host or explicitly disconnected.
-                    // Tear down UDP so there is no frozen last frame.
+                    // Tear down UDP so there is no frozen last frame and allow a
+                    // completely fresh auto‑connect / pairing on the next Host.
                     model.media.disarmAutoReconnect()
                     model.media.disconnect()
+                    model.selectedHost = nil
+                    model.hasAutoConnectedToPrimaryHost = false
 
                 default:
                     break
@@ -402,7 +415,6 @@ private extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .opacity(0.9)
-
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -425,7 +437,6 @@ private extension ViewerRootView {
         VStack(spacing: 8) {
             ProgressView()
                 .tint(.white)
-
             Text("Looking for nearby Hosts on this network…")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -619,7 +630,6 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
-
                     Text(host.name)
                         .font(.title3)
                         .bold()
@@ -730,7 +740,8 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                if case .paired = model.client.status, model.client.broadcastOn {
+                if case .paired = model.client.status,
+                   model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }

@@ -92,6 +92,9 @@ final class ViewerViewModel: ObservableObject {
         client.disconnect()
         media.disarmAutoReconnect()
         media.disconnect()
+        // Treat this as a full reset so a later Host restart behaves like a fresh session.
+        selectedHost = nil
+        hasAutoConnectedToPrimaryHost = false
         showPairSheet = false
     }
 
@@ -105,16 +108,15 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func maybeStartMedia() {
+        // Only start UDP when the Host says the broadcast is ON.
         guard client.broadcastOn else {
             BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
             return
         }
 
-        guard
-            case .paired(_, let maybePort) = client.status,
-            let udpPort = maybePort,
-            let selected = selectedHost
-        else {
+        guard case .paired(_, let maybePort) = client.status,
+              let udpPort = maybePort,
+              let selected = selectedHost else {
             return
         }
 
@@ -160,7 +162,9 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else {
+            return
+        }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -206,62 +210,71 @@ struct ViewerRootView: View {
                     }
                 }
             }
-            .task {
-                model.startDiscovery()
+        }
+        .task {
+            model.startDiscovery()
+        }
+        .onDisappear {
+            model.stopDiscovery()
+            updateIdleTimer(forHasVideo: false)
+        }
+        .onChange(of: model.browser.hosts) { _, newHosts in
+            // If the Host disappeared completely, clear selection so the next
+            // appearance is treated as a fresh session and auto‑connect can run.
+            if newHosts.isEmpty {
+                model.selectedHost = nil
+                model.hasAutoConnectedToPrimaryHost = false
             }
-            .onDisappear {
-                model.stopDiscovery()
-                updateIdleTimer(forHasVideo: false)
-            }
-            .onChange(of: model.browser.hosts) { _, _ in
-                model.autoConnectIfNeeded()
-            }
-            .onChange(of: model.client.status) { _, newStatus in
-                switch newStatus {
-                case .paired:
-                    // Newly paired or re‑paired → ensure UDP media is running.
-                    model.maybeStartMedia()
+            model.autoConnectIfNeeded()
+        }
+        .onChange(of: model.client.status) { _, newStatus in
+            switch newStatus {
+            case .paired:
+                // Newly paired or re‑paired → ensure UDP media is running.
+                model.maybeStartMedia()
 
-                case .failed, .idle:
-                    // Lost contact with Host or explicitly disconnected.
-                    // Tear down UDP so there is no frozen last frame.
-                    model.media.disarmAutoReconnect()
-                    model.media.disconnect()
+            case .failed, .idle:
+                // Lost contact with Host or explicitly disconnected.
+                // Tear down UDP so there is no frozen last frame and allow a
+                // completely fresh auto‑connect / pairing on the next Host.
+                model.media.disarmAutoReconnect()
+                model.media.disconnect()
+                model.selectedHost = nil
+                model.hasAutoConnectedToPrimaryHost = false
 
-                default:
-                    break
-                }
+            default:
+                break
             }
-            .onChange(of: model.client.broadcastOn) { _, on in
-                if on {
-                    // Broadcast turned ON → start or restart UDP media.
-                    model.maybeStartMedia()
-                } else {
-                    // Broadcast turned OFF → drop UDP media so the Viewer
-                    // shows idle state instead of a frozen last frame.
-                    model.media.disarmAutoReconnect()
-                    model.media.disconnect()
-                }
+        }
+        .onChange(of: model.client.broadcastOn) { _, on in
+            if on {
+                // Broadcast turned ON → start or restart UDP media.
+                model.maybeStartMedia()
+            } else {
+                // Broadcast turned OFF → drop UDP media so the Viewer
+                // shows idle state instead of a frozen last frame.
+                model.media.disarmAutoReconnect()
+                model.media.disconnect()
             }
-            .onChange(of: model.media.lastImage) { _, image in
-                let hasVideo = (image != nil)
-                updateIdleTimer(forHasVideo: hasVideo)
+        }
+        .onChange(of: model.media.lastImage) { _, image in
+            let hasVideo = (image != nil)
+            updateIdleTimer(forHasVideo: hasVideo)
 
-                if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
-                    autoDismissedOnFirstFrame = true
-                    model.showPairSheet = false
-                }
+            if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
+                autoDismissedOnFirstFrame = true
+                model.showPairSheet = false
             }
-            .sheet(isPresented: $model.showPairSheet) {
-                PairSheet(model: model)
-                    .presentationDetents([.fraction(0.35), .medium])
-            }
-            .sheet(isPresented: $model.showAwareSheet) {
-                awarePickSheet()
-            }
-            .sheet(isPresented: $showAbout) {
-                AboutView()
-            }
+        }
+        .sheet(isPresented: $model.showPairSheet) {
+            PairSheet(model: model)
+                .presentationDetents([.fraction(0.35), .medium])
+        }
+        .sheet(isPresented: $model.showAwareSheet) {
+            awarePickSheet()
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutView()
         }
     }
 }
@@ -391,7 +404,6 @@ private extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .opacity(0.9)
-
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -414,7 +426,6 @@ private extension ViewerRootView {
         VStack(spacing: 8) {
             ProgressView()
                 .tint(.white)
-
             Text("Looking for nearby Hosts on this network…")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -470,7 +481,6 @@ private extension ViewerRootView {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Nothing showing up?")
                     .font(.footnote.weight(.semibold))
-
                 Text("Local Network access for BeamRoom may need to be enabled in Settings.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -517,22 +527,18 @@ private extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
-
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.green)
-
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
@@ -608,7 +614,6 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
-
                     Text(host.name)
                         .font(.title3)
                         .bold()
@@ -719,7 +724,8 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                if case .paired = model.client.status, model.client.broadcastOn {
+                if case .paired = model.client.status,
+                   model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }
