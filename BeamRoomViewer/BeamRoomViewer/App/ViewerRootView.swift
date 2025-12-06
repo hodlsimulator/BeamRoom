@@ -1,8 +1,8 @@
 //
-// ViewerRootView.swift
-// BeamRoomViewer
+//  ViewerRootView.swift
+//  BeamRoomViewer
 //
-// Created by . . on 9/21/25.
+//  Created by . . on 9/21/25.
 //
 
 import SwiftUI
@@ -110,30 +110,37 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard case .paired(_, let maybePort) = client.status,
-              let udpPort = maybePort,
-              let sel = selectedHost
+        guard
+            case .paired(_, let maybePort) = client.status,
+            let udpPort = maybePort,
+            let selected = selectedHost
         else {
             return
         }
 
-        let updated = browser.hosts.first { $0.endpoint.debugDescription == sel.endpoint.debugDescription } ?? sel
+        // Prefer the latest resolved Host from the browser if available.
+        let updated = browser.hosts.first {
+            $0.endpoint.debugDescription == selected.endpoint.debugDescription
+        } ?? selected
 
-        if let pref = updated.preferredEndpoint,
-           case let .hostPort(host: h, port: _) = pref {
-            media.connect(toHost: h, port: udpPort)
+        // 1) Prefer resolved IPv4/IPv6 endpoint.
+        if let preferred = updated.preferredEndpoint,
+           case let .hostPort(host: host, port: _) = preferred {
+            media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
         }
 
-        if let h = client.udpHostCandidate() {
-            media.connect(toHost: h, port: udpPort)
+        // 2) Fallback: resolved host from control connection.
+        if let host = client.udpHostCandidate() {
+            media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
         }
 
-        if case let .hostPort(host: h, port: _) = updated.endpoint {
-            media.connect(toHost: h, port: udpPort)
+        // 3) Last resort: original Bonjour endpoint.
+        if case let .hostPort(host: host, port: _) = updated.endpoint {
+            media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
         }
@@ -160,7 +167,7 @@ final class ViewerViewModel: ObservableObject {
         code = BeamControlClient.randomCode()
         BeamLog.info("Auto-selected host \(host.name)", tag: "viewer")
 
-        // Silent auto-pair – no explicit Pair sheet tap needed.
+        // Silent auto‑pair – no explicit Pair sheet tap needed.
         showPairSheet = false
         pair()
     }
@@ -178,15 +185,14 @@ struct ViewerRootView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                if let cg = model.media.lastImage {
-                    videoView(cg)
+                if let cgImage = model.media.lastImage {
+                    videoView(cgImage)
                 } else {
                     idleStateView
                 }
             }
             .navigationTitle("Viewer")
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden,
-                     for: .navigationBar)
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
             .toolbar {
                 #if DEBUG
                 ToolbarItem(placement: .topBarTrailing) {
@@ -209,9 +215,20 @@ struct ViewerRootView: View {
             .onChange(of: model.browser.hosts) { _, _ in
                 model.autoConnectIfNeeded()
             }
-            .onChange(of: model.client.status) { _, new in
-                if case .paired = new {
+            .onChange(of: model.client.status) { _, newStatus in
+                switch newStatus {
+                case .paired:
+                    // Newly paired or re‑paired → ensure UDP media is running.
                     model.maybeStartMedia()
+
+                case .failed, .idle:
+                    // Lost contact with Host or explicitly disconnected.
+                    // Tear down UDP so there is no frozen last frame.
+                    model.media.disarmAutoReconnect()
+                    model.media.disconnect()
+
+                default:
+                    break
                 }
             }
             .onChange(of: model.client.broadcastOn) { _, on in
@@ -219,19 +236,17 @@ struct ViewerRootView: View {
                     // Broadcast turned ON → start or restart UDP media.
                     model.maybeStartMedia()
                 } else {
-                    // Broadcast turned OFF → drop UDP media cleanly so the Viewer
+                    // Broadcast turned OFF → drop UDP media so the Viewer
                     // shows idle state instead of a frozen last frame.
                     model.media.disarmAutoReconnect()
                     model.media.disconnect()
                 }
             }
-            .onChange(of: model.media.lastImage) { _, img in
-                let hasVideo = (img != nil)
+            .onChange(of: model.media.lastImage) { _, image in
+                let hasVideo = (image != nil)
                 updateIdleTimer(forHasVideo: hasVideo)
 
-                if hasVideo,
-                   model.showPairSheet,
-                   !autoDismissedOnFirstFrame {
+                if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
                     autoDismissedOnFirstFrame = true
                     model.showPairSheet = false
                 }
@@ -265,7 +280,6 @@ struct ViewerRootView: View {
 // MARK: - Layout helpers
 
 private extension ViewerRootView {
-
     /// Keeps the device awake while there is live video on screen.
     func updateIdleTimer(forHasVideo hasVideo: Bool) {
         let desired = hasVideo
@@ -324,33 +338,30 @@ private extension ViewerRootView {
         .padding(.horizontal, 16)
     }
 
-    // Active video mode with subtle overlay.
+    // Active video mode with a minimal control overlay.
     @ViewBuilder
     func videoView(_ cgImage: CGImage) -> some View {
-        GeometryReader { proxy in
-            Image(uiImage: UIImage(cgImage: cgImage))
-                .resizable()
-                .scaledToFit()
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .background(Color.black)
-                .ignoresSafeArea()
-        }
-        .overlay(alignment: .bottomLeading) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let host = model.selectedHost {
-                        Label(host.name, systemImage: "display")
-                            .font(.footnote)
-                    }
-                    statsFooter()
+        Image(uiImage: UIImage(cgImage: cgImage))
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .background(Color.black)
+            .ignoresSafeArea()
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    model.cancelPairing()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .imageScale(.large)
+                        .padding(8)
                 }
-                Spacer()
+                .background(.thinMaterial)
+                .clipShape(Circle())
+                .padding(.top, 16)
+                .padding(.trailing, 16)
+                .accessibilityLabel("Stop viewing")
             }
-            .padding(12)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding([.horizontal, .bottom], 16)
-        }
     }
 
     private var idleSubtitle: String {
@@ -365,8 +376,7 @@ private extension ViewerRootView {
             """
         } else {
             return """
-            Found \(count) nearby Hosts.
-            Choose one to start watching.
+            Found \(count) nearby Hosts. Choose one to start watching.
             """
         }
     }
@@ -518,37 +528,27 @@ private extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
+
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.green)
+
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(.red)
         }
-    }
-
-    @ViewBuilder
-    func statsFooter() -> some View {
-        Text(
-            String(
-                format: "fps %.1f • %.0f kbps • drops %llu",
-                model.media.stats.fps,
-                model.media.stats.kbps,
-                model.media.stats.drops
-            )
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -649,7 +649,7 @@ private struct PairSheet: View {
                     Label("Waiting for Host to accept…", systemImage: "hourglass")
                         .foregroundStyle(.secondary)
 
-                case .paired(let sid, let udp):
+                case .paired(let sid, let udpPort):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
 
@@ -664,8 +664,8 @@ private struct PairSheet: View {
                     )
                     .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
 
-                    if let u = udp {
-                        Text("Media UDP port: \(u)")
+                    if let udpPort {
+                        Text("Media UDP port: \(udpPort)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -722,16 +722,15 @@ private struct PairSheet: View {
             .padding()
             .navigationTitle("Pair")
             .presentationDetents([.fraction(0.35), .medium])
-            .onChange(of: model.client.status) { _, new in
-                if case .paired = new, !firedSuccessHaptic {
+            .onChange(of: model.client.status) { _, newStatus in
+                if case .paired = newStatus, !firedSuccessHaptic {
                     firedSuccessHaptic = true
-                    let gen = UINotificationFeedbackGenerator()
-                    gen.notificationOccurred(.success)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
                 }
             }
             .onAppear {
-                if case .paired = model.client.status,
-                   model.client.broadcastOn {
+                if case .paired = model.client.status, model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }

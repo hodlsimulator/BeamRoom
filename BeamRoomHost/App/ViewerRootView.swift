@@ -1,6 +1,6 @@
 //
 //  ViewerRootView.swift
-//  BeamRoomViewer
+//  BeamRoomHost
 //
 //  Created by . . on 9/21/25.
 //
@@ -34,7 +34,7 @@ final class ViewerViewModel: ObservableObject {
     let client = BeamControlClient()
     let media = UDPMediaClient()
 
-    private var cancellables = Set<AnyCancellable>()
+    private var cancellables: Set<AnyCancellable> = []
 
     init() {
         // Propagate media changes into the SwiftUI tree.
@@ -51,9 +51,8 @@ final class ViewerViewModel: ObservableObject {
             try browser.start()
 
             // If nothing appears after a short delay, hint about permissions.
-            Task { [weak self] in
+            Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                guard let self else { return }
                 if self.browser.hosts.isEmpty {
                     self.showPermHint = true
                 }
@@ -125,10 +124,8 @@ final class ViewerViewModel: ObservableObject {
         } ?? selected
 
         // 1) Prefer resolved IPv4/IPv6 endpoint.
-        if
-            let preferred = updated.preferredEndpoint,
-            case let .hostPort(host: host, port: _) = preferred
-        {
+        if let preferred = updated.preferredEndpoint,
+           case let .hostPort(host: host, port: _) = preferred {
             media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
@@ -170,7 +167,7 @@ final class ViewerViewModel: ObservableObject {
         code = BeamControlClient.randomCode()
         BeamLog.info("Auto-selected host \(host.name)", tag: "viewer")
 
-        // Silent auto-pair – no explicit Pair sheet tap needed.
+        // Silent auto‑pair – no explicit Pair sheet tap needed.
         showPairSheet = false
         pair()
     }
@@ -180,7 +177,7 @@ final class ViewerViewModel: ObservableObject {
 
 struct ViewerRootView: View {
     @StateObject private var model = ViewerViewModel()
-    @State private var showLogs = false
+    @State private var showAbout = false
     @State private var autoDismissedOnFirstFrame = false
 
     var body: some View {
@@ -188,26 +185,26 @@ struct ViewerRootView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                if let cg = model.media.lastImage {
-                    videoView(cg)
+                if let cgImage = model.media.lastImage {
+                    videoView(cgImage)
                 } else {
                     idleStateView
                 }
             }
-            .navigationTitle("Viewer")
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden,
-                     for: .navigationBar)
+            .navigationTitle("Watch")
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
+            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .tabBar)
             .toolbar {
-                #if DEBUG
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showLogs = true
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
+                if model.media.lastImage == nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showAbout = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                        }
+                        .accessibilityLabel("About BeamRoom")
                     }
-                    .accessibilityLabel("Show logs")
                 }
-                #endif
             }
             .task {
                 model.startDiscovery()
@@ -219,8 +216,8 @@ struct ViewerRootView: View {
             .onChange(of: model.browser.hosts) { _, _ in
                 model.autoConnectIfNeeded()
             }
-            .onChange(of: model.client.status) { _, new in
-                switch new {
+            .onChange(of: model.client.status) { _, newStatus in
+                switch newStatus {
                 case .paired:
                     // Newly paired or re‑paired → ensure UDP media is running.
                     model.maybeStartMedia()
@@ -246,8 +243,8 @@ struct ViewerRootView: View {
                     model.media.disconnect()
                 }
             }
-            .onChange(of: model.media.lastImage) { _, img in
-                let hasVideo = (img != nil)
+            .onChange(of: model.media.lastImage) { _, image in
+                let hasVideo = (image != nil)
                 updateIdleTimer(forHasVideo: hasVideo)
 
                 if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
@@ -262,21 +259,9 @@ struct ViewerRootView: View {
             .sheet(isPresented: $model.showAwareSheet) {
                 awarePickSheet()
             }
-            #if DEBUG
-            .sheet(isPresented: $showLogs) {
-                NavigationStack {
-                    BeamLogView()
-                        .navigationTitle("Logs")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") {
-                                    showLogs = false
-                                }
-                            }
-                        }
-                }
+            .sheet(isPresented: $showAbout) {
+                AboutView()
             }
-            #endif
         }
     }
 }
@@ -342,33 +327,30 @@ private extension ViewerRootView {
         .padding(.horizontal, 16)
     }
 
-    // Active video mode with subtle overlay.
+    // Active video mode with a minimal control overlay.
     @ViewBuilder
     func videoView(_ cgImage: CGImage) -> some View {
-        GeometryReader { proxy in
-            Image(uiImage: UIImage(cgImage: cgImage))
-                .resizable()
-                .scaledToFit()
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .background(Color.black)
-                .ignoresSafeArea()
-        }
-        .overlay(alignment: .bottomLeading) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let host = model.selectedHost {
-                        Label(host.name, systemImage: "display")
-                            .font(.footnote)
-                    }
-                    statsFooter()
+        Image(uiImage: UIImage(cgImage: cgImage))
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .background(Color.black)
+            .ignoresSafeArea()
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    model.cancelPairing()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .imageScale(.large)
+                        .padding(8)
                 }
-                Spacer()
+                .background(.thinMaterial)
+                .clipShape(Circle())
+                .padding(.top, 16)
+                .padding(.trailing, 16)
+                .accessibilityLabel("Stop viewing")
             }
-            .padding(12)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding([.horizontal, .bottom], 16)
-        }
     }
 
     private var idleSubtitle: String {
@@ -409,6 +391,7 @@ private extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .opacity(0.9)
+
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -456,6 +439,7 @@ private extension ViewerRootView {
                                 .font(.body)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.9)
+
                             Text("Tap to connect")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -533,37 +517,27 @@ private extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
+
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.green)
+
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
                 .foregroundStyle(.red)
         }
-    }
-
-    @ViewBuilder
-    func statsFooter() -> some View {
-        Text(
-            String(
-                format: "fps %.1f • %.0f kbps • drops %llu",
-                model.media.stats.fps,
-                model.media.stats.kbps,
-                model.media.stats.drops
-            )
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -634,6 +608,7 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
+
                     Text(host.name)
                         .font(.title3)
                         .bold()
@@ -656,15 +631,14 @@ private struct PairSheet: View {
                         .foregroundStyle(.secondary)
 
                 case .connecting(let hostName, _):
-                    Label("Connecting to \(hostName)…",
-                          systemImage: "arrow.triangle.2.circlepath")
+                    Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
 
                 case .waitingAcceptance:
                     Label("Waiting for Host to accept…", systemImage: "hourglass")
                         .foregroundStyle(.secondary)
 
-                case .paired(let sid, let udp):
+                case .paired(let sid, let udpPort):
                     Label("Paired ✓", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(.green)
 
@@ -675,14 +649,12 @@ private struct PairSheet: View {
 
                     Label(
                         model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
-                        systemImage: model.client.broadcastOn
-                            ? "dot.radiowaves.left.right"
-                            : "wave.3.right"
+                        systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
                     )
                     .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
 
-                    if let udp = udp {
-                        Text("Media UDP port: \(udp)")
+                    if let udpPort {
+                        Text("Media UDP port: \(udpPort)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -739,11 +711,11 @@ private struct PairSheet: View {
             .padding()
             .navigationTitle("Pair")
             .presentationDetents([.fraction(0.35), .medium])
-            .onChange(of: model.client.status) { _, new in
-                if case .paired = new, !firedSuccessHaptic {
+            .onChange(of: model.client.status) { _, newStatus in
+                if case .paired = newStatus, !firedSuccessHaptic {
                     firedSuccessHaptic = true
-                    let gen = UINotificationFeedbackGenerator()
-                    gen.notificationOccurred(.success)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
                 }
             }
             .onAppear {
