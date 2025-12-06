@@ -123,7 +123,7 @@ final class BackgroundAudioKeeper {
 
             for channel in 0..<channels {
                 let ptr = channelData[channel]
-                ptr?.initialize(repeating: 0, count: samplesPerChannel)
+                ptr.initialize(repeating: 0, count: samplesPerChannel)
             }
         }
 
