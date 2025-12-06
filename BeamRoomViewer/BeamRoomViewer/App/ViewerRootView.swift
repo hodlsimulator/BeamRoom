@@ -4,6 +4,8 @@
 //
 //  Created by . . on 9/21/25.
 //
+//  Legacy standalone Viewer target.
+//
 
 import SwiftUI
 import Combine
@@ -23,6 +25,7 @@ import WiFiAware
 
 @MainActor
 final class ViewerViewModel: ObservableObject {
+
     @Published var code: String = BeamControlClient.randomCode()
     @Published var selectedHost: DiscoveredHost?
     @Published var showPairSheet: Bool = false
@@ -92,6 +95,7 @@ final class ViewerViewModel: ObservableObject {
         client.disconnect()
         media.disarmAutoReconnect()
         media.disconnect()
+
         // Treat this as a full reset so a later Host restart behaves like a fresh session.
         selectedHost = nil
         hasAutoConnectedToPrimaryHost = false
@@ -107,6 +111,7 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    /// Start UDP media if we are paired and the Host reports Broadcast ON.
     func maybeStartMedia() {
         // Only start UDP when the Host says the broadcast is ON.
         guard client.broadcastOn else {
@@ -150,6 +155,27 @@ final class ViewerViewModel: ObservableObject {
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
     }
 
+    /// Called when the app returns to the foreground (e.g. after a phone call).
+    /// If we are still logically paired and the Host says the broadcast is ON,
+    /// force a fresh UDP media connection. This avoids “stuck” sockets where
+    /// video only works while the Host is foregrounded.
+    func restartMediaAfterForegroundIfNeeded() {
+        guard client.broadcastOn else { return }
+
+        guard case .paired = client.status else {
+            // Not paired any more; nothing to restart.
+            return
+        }
+
+        // Drop any potentially stale UDP socket.
+        media.disarmAutoReconnect()
+        media.disconnect()
+
+        // Re-use the normal path to pick the best Host endpoint and re-arm
+        // auto‑reconnect.
+        maybeStartMedia()
+    }
+
     /// Auto‑connect to a single discovered Host to remove extra taps.
     func autoConnectIfNeeded() {
         guard !hasAutoConnectedToPrimaryHost else { return }
@@ -180,7 +206,10 @@ final class ViewerViewModel: ObservableObject {
 // MARK: - Root view
 
 struct ViewerRootView: View {
+
     @StateObject private var model = ViewerViewModel()
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var showLogs = false
     @State private var autoDismissedOnFirstFrame = false
 
@@ -209,90 +238,98 @@ struct ViewerRootView: View {
                 }
                 #endif
             }
-            .task {
-                model.startDiscovery()
+        }
+        .task {
+            model.startDiscovery()
+        }
+        .onDisappear {
+            model.stopDiscovery()
+            updateIdleTimer(forHasVideo: false)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // App became active again (e.g. after a phone call) – make sure
+                // the UDP media path is in a healthy state.
+                model.restartMediaAfterForegroundIfNeeded()
             }
-            .onDisappear {
-                model.stopDiscovery()
-                updateIdleTimer(forHasVideo: false)
+        }
+        .onChange(of: model.browser.hosts) { _, newHosts in
+            // If the Host disappeared completely, clear selection so the next
+            // appearance is treated as a fresh session and auto‑connect can run.
+            if newHosts.isEmpty {
+                model.selectedHost = nil
+                model.hasAutoConnectedToPrimaryHost = false
             }
-            .onChange(of: model.browser.hosts) { _, newHosts in
-                // If the Host disappeared completely, clear selection so the next
-                // appearance is treated as a fresh session and auto‑connect can run.
-                if newHosts.isEmpty {
-                    model.selectedHost = nil
-                    model.hasAutoConnectedToPrimaryHost = false
-                }
-                model.autoConnectIfNeeded()
-            }
-            .onChange(of: model.client.status) { _, newStatus in
-                switch newStatus {
-                case .paired:
-                    // Newly paired or re‑paired → ensure UDP media is running.
-                    model.maybeStartMedia()
+            model.autoConnectIfNeeded()
+        }
+        .onChange(of: model.client.status) { _, newStatus in
+            switch newStatus {
+            case .paired:
+                // Newly paired or re‑paired → ensure UDP media is running.
+                model.maybeStartMedia()
 
-                case .failed, .idle:
-                    // Lost contact with Host or explicitly disconnected.
-                    // Tear down UDP so there is no frozen last frame and allow a
-                    // completely fresh auto‑connect / pairing on the next Host.
-                    model.media.disarmAutoReconnect()
-                    model.media.disconnect()
-                    model.selectedHost = nil
-                    model.hasAutoConnectedToPrimaryHost = false
+            case .failed, .idle:
+                // Lost contact with Host or explicitly disconnected.
+                // Tear down UDP so there is no frozen last frame and allow a
+                // completely fresh auto‑connect / pairing on the next Host.
+                model.media.disarmAutoReconnect()
+                model.media.disconnect()
+                model.selectedHost = nil
+                model.hasAutoConnectedToPrimaryHost = false
 
-                default:
-                    break
-                }
+            default:
+                break
             }
-            .onChange(of: model.client.broadcastOn) { _, on in
-                if on {
-                    // Broadcast turned ON → start or restart UDP media.
-                    model.maybeStartMedia()
-                } else {
-                    // Broadcast turned OFF → drop UDP media so the Viewer
-                    // shows idle state instead of a frozen last frame.
-                    model.media.disarmAutoReconnect()
-                    model.media.disconnect()
-                }
+        }
+        .onChange(of: model.client.broadcastOn) { _, on in
+            if on {
+                // Broadcast turned ON → start or restart UDP media.
+                model.maybeStartMedia()
+            } else {
+                // Broadcast turned OFF → drop UDP media so the Viewer
+                // shows idle state instead of a frozen last frame.
+                model.media.disarmAutoReconnect()
+                model.media.disconnect()
             }
-            .onChange(of: model.media.lastImage) { _, image in
-                let hasVideo = (image != nil)
-                updateIdleTimer(forHasVideo: hasVideo)
+        }
+        .onChange(of: model.media.lastImage) { _, image in
+            let hasVideo = (image != nil)
+            updateIdleTimer(forHasVideo: hasVideo)
 
-                if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
-                    autoDismissedOnFirstFrame = true
-                    model.showPairSheet = false
-                }
+            if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
+                autoDismissedOnFirstFrame = true
+                model.showPairSheet = false
             }
-            .sheet(isPresented: $model.showPairSheet) {
-                PairSheet(model: model)
-                    .presentationDetents([.fraction(0.35), .medium])
-            }
-            .sheet(isPresented: $model.showAwareSheet) {
-                awarePickSheet()
-            }
-            #if DEBUG
-            .sheet(isPresented: $showLogs) {
-                NavigationStack {
-                    BeamLogView()
-                        .navigationTitle("Logs")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") {
-                                    showLogs = false
-                                }
+        }
+        .sheet(isPresented: $model.showPairSheet) {
+            PairSheet(model: model)
+                .presentationDetents([.fraction(0.35), .medium])
+        }
+        .sheet(isPresented: $model.showAwareSheet) {
+            awarePickSheet()
+        }
+        #if DEBUG
+        .sheet(isPresented: $showLogs) {
+            NavigationStack {
+                BeamLogView()
+                    .navigationTitle("Logs")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") {
+                                showLogs = false
                             }
                         }
-                }
+                    }
             }
-            #endif
         }
+        #endif
     }
 }
 
 // MARK: - Layout helpers
 
 private extension ViewerRootView {
+
     /// Keeps the device awake while there is live video on screen.
     func updateIdleTimer(forHasVideo hasVideo: Bool) {
         let desired = hasVideo
@@ -415,6 +452,7 @@ private extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .opacity(0.9)
+
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -621,6 +659,7 @@ private extension ViewerRootView {
 // MARK: - Pair Sheet
 
 private struct PairSheet: View {
+
     @ObservedObject var model: ViewerViewModel
     @State private var firedSuccessHaptic = false
 
@@ -630,6 +669,7 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
+
                     Text(host.name)
                         .font(.title3)
                         .bold()
@@ -670,7 +710,9 @@ private struct PairSheet: View {
 
                     Label(
                         model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
-                        systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
+                        systemImage: model.client.broadcastOn
+                            ? "dot.radiowaves.left.right"
+                            : "wave.3.right"
                     )
                     .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
 
@@ -740,8 +782,7 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                if case .paired = model.client.status,
-                   model.client.broadcastOn {
+                if case .paired = model.client.status, model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }

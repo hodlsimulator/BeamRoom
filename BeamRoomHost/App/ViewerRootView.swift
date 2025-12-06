@@ -23,6 +23,7 @@ import WiFiAware
 
 @MainActor
 final class ViewerViewModel: ObservableObject {
+
     @Published var code: String = BeamControlClient.randomCode()
     @Published var selectedHost: DiscoveredHost?
     @Published var showPairSheet: Bool = false
@@ -92,6 +93,7 @@ final class ViewerViewModel: ObservableObject {
         client.disconnect()
         media.disarmAutoReconnect()
         media.disconnect()
+
         // Treat this as a full reset so a later Host restart behaves like a fresh session.
         selectedHost = nil
         hasAutoConnectedToPrimaryHost = false
@@ -107,6 +109,7 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    /// Start UDP media if paired and Broadcast is reported as ON.
     func maybeStartMedia() {
         // Only start UDP when the Host says the broadcast is ON.
         guard client.broadcastOn else {
@@ -114,9 +117,11 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard case .paired(_, let maybePort) = client.status,
-              let udpPort = maybePort,
-              let selected = selectedHost else {
+        guard
+            case .paired(_, let maybePort) = client.status,
+            let udpPort = maybePort,
+            let selected = selectedHost
+        else {
             return
         }
 
@@ -126,8 +131,10 @@ final class ViewerViewModel: ObservableObject {
         } ?? selected
 
         // 1) Prefer resolved IPv4/IPv6 endpoint.
-        if let preferred = updated.preferredEndpoint,
-           case let .hostPort(host: host, port: _) = preferred {
+        if
+            let preferred = updated.preferredEndpoint,
+            case let .hostPort(host: host, port: _) = preferred
+        {
             media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
@@ -148,6 +155,18 @@ final class ViewerViewModel: ObservableObject {
         }
 
         BeamLog.warn("No hostPort endpoint available for UDP media", tag: "viewer")
+    }
+
+    /// Called when the app returns to the foreground (for example after a phone call).
+    /// If still logically paired and Broadcast is ON, force a fresh UDP media connection.
+    func restartMediaAfterForegroundIfNeeded() {
+        guard client.broadcastOn else { return }
+        guard case .paired = client.status else { return }
+
+        // Drop any potentially stale UDP socket and reconnect via the normal path.
+        media.disarmAutoReconnect()
+        media.disconnect()
+        maybeStartMedia()
     }
 
     /// Auto‑connect to a single discovered Host to remove extra taps.
@@ -180,7 +199,10 @@ final class ViewerViewModel: ObservableObject {
 // MARK: - Root view
 
 struct ViewerRootView: View {
+
     @StateObject private var model = ViewerViewModel()
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var showAbout = false
     @State private var autoDismissedOnFirstFrame = false
 
@@ -217,6 +239,13 @@ struct ViewerRootView: View {
         .onDisappear {
             model.stopDiscovery()
             updateIdleTimer(forHasVideo: false)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // App became active again (for example after a phone call) – ensure
+                // the UDP media path is in a healthy state.
+                model.restartMediaAfterForegroundIfNeeded()
+            }
         }
         .onChange(of: model.browser.hosts) { _, newHosts in
             // If the Host disappeared completely, clear selection so the next
@@ -282,6 +311,7 @@ struct ViewerRootView: View {
 // MARK: - Layout helpers
 
 private extension ViewerRootView {
+
     /// Keeps the device awake while there is live video on screen.
     func updateIdleTimer(forHasVideo hasVideo: Bool) {
         let desired = hasVideo
@@ -481,6 +511,7 @@ private extension ViewerRootView {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Nothing showing up?")
                     .font(.footnote.weight(.semibold))
+
                 Text("Local Network access for BeamRoom may need to be enabled in Settings.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -527,18 +558,22 @@ private extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
+
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.green)
+
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
@@ -605,6 +640,7 @@ private extension ViewerRootView {
 // MARK: - Pair Sheet
 
 private struct PairSheet: View {
+
     @ObservedObject var model: ViewerViewModel
     @State private var firedSuccessHaptic = false
 
@@ -636,7 +672,8 @@ private struct PairSheet: View {
                         .foregroundStyle(.secondary)
 
                 case .connecting(let hostName, _):
-                    Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Connecting to \(hostName)…",
+                          systemImage: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
 
                 case .waitingAcceptance:
@@ -654,7 +691,9 @@ private struct PairSheet: View {
 
                     Label(
                         model.client.broadcastOn ? "Broadcast: On" : "Broadcast: Off",
-                        systemImage: model.client.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
+                        systemImage: model.client.broadcastOn
+                            ? "dot.radiowaves.left.right"
+                            : "wave.3.right"
                     )
                     .foregroundStyle(model.client.broadcastOn ? .green : .secondary)
 
