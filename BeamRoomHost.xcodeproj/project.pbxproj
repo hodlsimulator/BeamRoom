@@ -72,6 +72,13 @@
 			);
 			target = E13AEE402E7F942100331955 /* BeamRoomBroadcastUpload */;
 		};
+		E14B06092EE5B31100A85A3D /* Exceptions for "BeamRoomHost" folder in "BeamRoomUpload2" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				PrivacyInfo.xcprivacy,
+			);
+			target = E1D1D6692E88BA3E008C2C40 /* BeamRoomUpload2 */;
+		};
 		E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoom" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -93,6 +100,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E184429D2E7FA84400BEB38B /* Exceptions for "BeamRoomHost" folder in "BeamRoom" target */,
+				E14B06092EE5B31100A85A3D /* Exceptions for "BeamRoomHost" folder in "BeamRoomUpload2" target */,
 			);
 			path = BeamRoomHost;
 			sourceTree = "<group>";
@@ -509,7 +517,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BeamRoomHost/BeamRoomHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -524,7 +532,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.8;
+				MARKETING_VERSION = 0.9.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -548,7 +556,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BeamRoomHost/BeamRoomHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -563,7 +571,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.8;
+				MARKETING_VERSION = 0.9.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -586,7 +594,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomBroadcastUpload/BeamRoomBroadcastUpload.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = "§";
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
@@ -597,7 +605,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.8;
+				MARKETING_VERSION = 0.9.9;
 				OTHER_SWIFT_FLAGS = "-DAWARE_UI_ENABLED";
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomBroadcastUpload;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -620,7 +628,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomBroadcastUpload/BeamRoomBroadcastUpload.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = "§";
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomBroadcastUpload/Info.plist;
@@ -631,7 +639,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.8;
+				MARKETING_VERSION = 0.9.9;
 				OTHER_SWIFT_FLAGS = "-DAWARE_UI_ENABLED";
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomBroadcastUpload;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -655,7 +663,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomUpload2/BeamRoomUpload2.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomUpload2/Info.plist;
@@ -666,7 +674,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.8;
+				MARKETING_VERSION = 0.9.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomUpload2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
@@ -684,7 +692,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BeamRoomUpload2/BeamRoomUpload2.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 92HEPEJ42Z;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BeamRoomUpload2/Info.plist;
@@ -695,7 +703,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.8;
+				MARKETING_VERSION = 0.9.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.conornolan.BeamRoomHost.BeamRoomUpload2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
