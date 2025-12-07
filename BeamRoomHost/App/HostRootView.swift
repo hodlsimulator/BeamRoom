@@ -25,7 +25,6 @@ final class HostViewModel: ObservableObject {
     @Published var udpPeer: String? = nil
 
     let server: BeamControlServer
-
     private var cancellables = Set<AnyCancellable>()
     private var broadcastPoll: DispatchSourceTimer?
 
@@ -36,17 +35,23 @@ final class HostViewModel: ObservableObject {
 
         server.$sessions
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.sessions = $0 }
+            .sink { [weak self] in
+                self?.sessions = $0
+            }
             .store(in: &cancellables)
 
         server.$pendingPairs
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.pendingPairs = $0 }
+            .sink { [weak self] in
+                self?.pendingPairs = $0
+            }
             .store(in: &cancellables)
 
         server.$udpPeer
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.udpPeer = $0 }
+            .sink { [weak self] in
+                self?.udpPeer = $0
+            }
             .store(in: &cancellables)
 
         // If the Screen Broadcast is already running (for example started from
@@ -118,8 +123,10 @@ final class HostViewModel: ObservableObject {
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 1, repeating: 1)
+
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+
             let on = BeamConfig.isBroadcastOn()
 
             Task { @MainActor in
@@ -127,6 +134,7 @@ final class HostViewModel: ObservableObject {
 
                 if on != self.broadcastOn {
                     self.broadcastOn = on
+
                     if on {
                         BackgroundAudioKeeper.shared.start()
                     } else {
@@ -135,6 +143,7 @@ final class HostViewModel: ObservableObject {
                 }
             }
         }
+
         timer.resume()
         broadcastPoll = timer
     }
@@ -150,16 +159,23 @@ final class HostViewModel: ObservableObject {
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
     @StateObject private var broadcastController = BroadcastLaunchController()
+
     @State private var showingAbout = false
+    @State private var showingBroadcastHelp = false
 
     var body: some View {
         NavigationStack {
-            List {
-                quickStartSection
-                hostSection
-                broadcastSection
-                pairingSection
+            ScrollView {
+                VStack(spacing: 16) {
+                    quickStartCard
+                    hostSettingsCard
+                    broadcastHelpRow
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 32) // extra space above the pinned pairing card
             }
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Share")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -171,9 +187,30 @@ struct HostRootView: View {
                     .accessibilityLabel("About BeamRoom")
                 }
             }
+            // Pinned pairing card – always visible at the bottom
+            .safeAreaInset(edge: .bottom) {
+                pairingCard
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
+            }
         }
         .sheet(isPresented: $showingAbout) {
             AboutView()
+        }
+        .confirmationDialog(
+            "Screen broadcast help",
+            isPresented: $showingBroadcastHelp,
+            titleVisibility: .visible
+        ) {
+            Button("Open Screen Broadcast controls") {
+                broadcastController.startBroadcast()
+            }
+
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(
+                "If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose “BeamRoom”, then tap Start Broadcast.\n\nOnce broadcasting, video is sent to paired Viewers even while this app is in the background."
+            )
         }
         .onAppear {
             // If a Broadcast is already running (for example started from
@@ -185,26 +222,28 @@ struct HostRootView: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Cards
 
     /// Top card: one big button that both starts hosting and opens the Broadcast sheet.
-    private var quickStartSection: some View {
-        Section {
+    private var quickStartCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Quick start")
+                .font(.caption.smallCaps())
+                .foregroundStyle(.secondary)
+
             VStack(alignment: .leading, spacing: 12) {
                 if !model.broadcastOn {
                     if !model.started {
                         // Step 1 – Start hosting + prepare broadcast.
-                        Text("Step 1 of 2 • Start sharing")
+                        Text("Start sharing")
                             .font(.headline)
-
                         Text("Starts hosting and opens the Screen Broadcast sheet so nearby Viewers can connect.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
                         // Step 2 – Just start the Screen Broadcast.
-                        Text("Step 2 of 2 • Start Screen Broadcast")
+                        Text("Start Screen Broadcast")
                             .font(.headline)
-
                         Text("Start the Screen Broadcast so the screen is mirrored to paired Viewers.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -212,8 +251,7 @@ struct HostRootView: View {
                 } else {
                     Text("Streaming live")
                         .font(.headline)
-
-                    Text("Broadcast is ON. To stop or restart, open the Screen Broadcast controls.")
+                    Text("Broadcast is ON. Open the Screen Broadcast controls to stop or restart.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -225,7 +263,9 @@ struct HostRootView: View {
                         model.broadcastOn
                             ? "Open Screen Broadcast controls"
                             : (model.started ? "Start Screen Broadcast" : "Start sharing"),
-                        systemImage: model.broadcastOn ? "dot.radiowaves.left.and.right" : "play.circle.fill"
+                        systemImage: model.broadcastOn
+                            ? "dot.radiowaves.left.and.right"
+                            : "play.circle.fill"
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -239,137 +279,211 @@ struct HostRootView: View {
 
                 statusSummary
             }
-            .padding(.vertical, 4)
-        } header: {
-            Text("Quick start")
-        }
-    }
-
-    private var hostSection: some View {
-        Section {
-            TextField("Service name", text: $model.serviceName)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-
-            Button {
-                model.toggleServer()
-            } label: {
-                Label(
-                    model.started ? "Stop hosting" : "Start hosting",
-                    systemImage: model.started ? "stop.circle.fill" : "play.circle.fill"
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-
-            Toggle(
-                "Auto-accept pairing",
-                isOn: Binding(
-                    get: { model.autoAccept },
-                    set: { model.setAutoAccept($0) }
-                )
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(.thinMaterial)
             )
-
-            if let peer = model.udpPeer {
-                Label("UDP peer: \(peer)", systemImage: "dot.radiowaves.left.and.right")
-            } else {
-                Label("UDP peer: none", systemImage: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Host")
         }
     }
 
-    private var broadcastSection: some View {
-        Section {
-            HStack {
-                Text("Broadcast status")
-                Spacer()
-                Circle()
-                    .fill(model.broadcastOn ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                Text(model.broadcastOn ? "ON" : "OFF")
-                    .foregroundColor(model.broadcastOn ? .green : .secondary)
-                    .font(.subheadline.bold())
-            }
+    /// Host configuration in a compact card.
+    private var hostSettingsCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Host")
+                .font(.caption.smallCaps())
+                .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Service name", text: $model.serviceName)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+
+                Toggle(
+                    "Auto-accept pairing",
+                    isOn: Binding(
+                        get: { model.autoAccept },
+                        set: { model.setAutoAccept($0) }
+                    )
+                )
+
                 Button {
-                    broadcastController.startBroadcast()
+                    model.toggleServer()
                 } label: {
-                    Label("Start Screen Broadcast", systemImage: "dot.radiowaves.left.and.right")
-                        .frame(maxWidth: .infinity)
+                    Label(
+                        model.started ? "Stop hosting" : "Start hosting",
+                        systemImage: model.started ? "stop.circle.fill" : "play.circle.fill"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
 
-                Text(
-                    "If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose “BeamRoom”, then tap Start Broadcast."
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-                Text("Once broadcasting, video is sent to paired Viewers even while this app is in the background.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 4)
-        } header: {
-            Text("Screen broadcast")
-        }
-    }
-
-    private var pairingSection: some View {
-        Section {
-            if model.pendingPairs.isEmpty && model.sessions.isEmpty {
-                Text("No active or pending viewers.")
-                    .foregroundStyle(.secondary)
-            }
-
-            ForEach(model.pendingPairs) { pending in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(pending.remoteDescription)
-                        Text("Code \(pending.code)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Button("Decline") {
-                        model.decline(pending.id)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Accept") {
-                        model.accept(pending.id)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-
-            ForEach(model.sessions) { session in
-                VStack(alignment: .leading) {
-                    Text(session.remoteDescription)
-                    Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption)
+                if let peer = model.udpPeer {
+                    Label("UDP peer: \(peer)", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.footnote)
+                } else {
+                    Label("UDP peer: none", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
-        } header: {
-            Text("Pairing")
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
         }
+    }
+
+    /// Small row that replaces the old tall "Screen broadcast" section.
+    private var broadcastHelpRow: some View {
+        Button {
+            showingBroadcastHelp = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "questionmark.circle")
+                    .imageScale(.medium)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Problems starting the broadcast?")
+                        .font(.subheadline)
+                    Text("Open the Screen Broadcast controls and follow the steps.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.25))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Pinned bottom card – pairing is always visible and visually prominent.
+    private var pairingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Pairing", systemImage: "person.2.fill")
+                    .font(.headline)
+
+                Spacer()
+
+                if !model.sessions.isEmpty {
+                    Text(viewerCountLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+
+            if model.pendingPairs.isEmpty && model.sessions.isEmpty {
+                Text("Waiting for Viewers to pair…")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+
+            ForEach(model.pendingPairs) { pending in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(pending.remoteDescription)
+                        .font(.subheadline.weight(.semibold))
+
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("Code")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.8))
+
+                        Text(pending.code)
+                            .font(.title3.monospacedDigit().weight(.bold))
+                    }
+
+                    HStack(spacing: 12) {
+                        Button(role: .cancel) {
+                            model.decline(pending.id)
+                        } label: {
+                            Text("Decline")
+                                .font(.subheadline)
+                        }
+                        .buttonStyle(.borderless)
+                        .tint(.white)
+
+                        Spacer()
+
+                        Button {
+                            model.accept(pending.id)
+                        } label: {
+                            Text("Pair viewer")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.white)
+                                .foregroundColor(Color.accentColor)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Accept pairing with \(pending.remoteDescription)")
+                    }
+                }
+                .padding(.top, 4)
+            }
+
+            if !model.sessions.isEmpty {
+                Divider()
+                    .background(Color.white.opacity(0.3))
+
+                ForEach(model.sessions) { session in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.remoteDescription)
+                            Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "checkmark.circle.fill")
+                            .imageScale(.large)
+                            .foregroundStyle(.white)
+                    }
+                }
+                .font(.subheadline)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.95),
+                            Color.accentColor.opacity(0.7)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
     }
 
     // MARK: - Helpers
 
     private var viewerCountLabel: String {
         let count = model.sessions.count
+
         switch count {
-        case 0: return "No viewers"
-        case 1: return "1 viewer"
-        default: return "\(count) viewers"
+        case 0:
+            return "No viewers"
+        case 1:
+            return "1 viewer"
+        default:
+            return "\(count) viewers"
         }
     }
 
@@ -399,6 +513,7 @@ struct HostRootView: View {
         if !model.started {
             model.toggleServer()
         }
+
         broadcastController.startBroadcast()
     }
 }
@@ -428,8 +543,10 @@ struct BroadcastPickerShim: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView()
         picker.showsMicrophoneButton = true
+
         // Let the system show all upload extensions; selection is made from the list.
         picker.preferredExtension = nil
+
         controller.pickerView = picker
         return picker
     }
