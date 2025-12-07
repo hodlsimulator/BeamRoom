@@ -6,123 +6,243 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Support information and FAQs for the BeamRoom app.">
     <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f2f2f7;
+            --text: #111111;
+            --muted: #555555;
+            --card-bg: #ffffff;
+            --card-border: #e3e3ea;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+            --link: #007aff;
+            --link-hover: #0055c4;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #000000;
+                --text: #f5f5f7;
+                --muted: #a1a1aa;
+                --card-bg: #1c1c1e;
+                --card-border: #2c2c2e;
+                --shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+                --link: #0a84ff;
+                --link-hover: #66aaff;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
             margin: 0;
             padding: 0;
-            background: #ffffff;
-            color: #111111;
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, rgba(0, 122, 255, 0.08), transparent 55%) var(--bg);
+            color: var(--text);
         }
+
         main {
-            max-width: 720px;
-            margin: 2.5rem auto;
-            padding: 0 1.5rem 3rem;
+            max-width: 840px;
+            margin: 2.5rem auto 3.5rem;
+            padding: 0 1.5rem;
         }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 18px;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow);
+            padding: 1.75rem 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .hero {
+            padding: 2rem 1.75rem 1.75rem;
+        }
+
+        .hero-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+
         h1 {
             font-size: 2.1rem;
-            margin: 0 0 0.25rem;
+            letter-spacing: -0.02em;
+            margin: 0;
         }
+
+        .subtitle {
+            margin: 0.35rem 0 0;
+            color: var(--muted);
+        }
+
+        nav {
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+
+        nav a {
+            margin-left: 1.25rem;
+        }
+
         h2 {
             font-size: 1.5rem;
-            margin-top: 2rem;
+            margin: 0 0 0.75rem;
         }
+
         h3 {
             font-size: 1.2rem;
-            margin-top: 1.5rem;
+            margin: 1.25rem 0 0.5rem;
         }
+
         p {
-            line-height: 1.5;
+            line-height: 1.55;
+            margin: 0.25rem 0 0.75rem;
         }
+
+        ul {
+            margin: 0.25rem 0 0.75rem 1.2rem;
+            padding: 0;
+        }
+
+        li {
+            line-height: 1.5;
+            margin-bottom: 0.25rem;
+        }
+
         a {
-            color: #007aff;
+            color: var(--link);
             text-decoration: none;
         }
+
         a:hover {
             text-decoration: underline;
+            color: var(--link-hover);
         }
+
         footer {
-            margin-top: 3rem;
+            margin-top: 1.75rem;
+            text-align: left;
             font-size: 0.85rem;
-            color: #666666;
+            color: var(--muted);
+        }
+
+        @media (max-width: 600px) {
+            .hero-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            nav a {
+                margin-left: 0;
+                margin-right: 1rem;
+            }
+
+            .hero {
+                padding: 1.75rem 1.25rem 1.5rem;
+            }
+
+            .card {
+                padding: 1.5rem 1.25rem;
+            }
         }
     </style>
 </head>
 <body>
 <main>
-    <h1>Support</h1>
-    <p>for BeamRoom</p>
+    <section class="card hero">
+        <div class="hero-header">
+            <div>
+                <h1>Support</h1>
+                <p class="subtitle">for BeamRoom</p>
+            </div>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="privacy.html">Privacy Policy</a>
+            </nav>
+        </div>
+    </section>
 
-    <h2>Contact</h2>
-    <p>
-        Email: <a href="mailto:support@beamroom.app">support@beamroom.app</a><br>
-        We aim to respond within a few working days.
-    </p>
+    <section class="card">
+        <h2>Contact</h2>
+        <p>
+            Email: <a href="mailto:support@beamroom.app">support@beamroom.app</a><br>
+            We aim to respond within a few working days.
+        </p>
+    </section>
 
-    <h2>FAQs</h2>
+    <section class="card">
+        <h2>FAQs</h2>
 
-    <h3>How do I start sharing my screen?</h3>
-    <p>
-        1. Make sure the host and viewers are on the same Wi-Fi network or close enough for peer-to-peer to work.<br>
-        2. Open BeamRoom on the host and go to the <strong>Share</strong> tab.<br>
-        3. Start a room, then open Control Centre and long-press the Screen Recording button.<br>
-        4. Choose <strong>BeamRoom</strong> and begin broadcasting.
-    </p>
-    <p>
-        Viewers open BeamRoom, switch to the <strong>Watch</strong> tab, and follow the prompts to join using
-        the host’s room code.
-    </p>
+        <h3>How do I start sharing my screen?</h3>
+        <p>
+            1. Make sure the host and viewer devices are on the same Wi-Fi network or close enough for peer-to-peer to work.<br>
+            2. Open BeamRoom on the host and go to the <strong>Share</strong> tab.<br>
+            3. Start a room, then open Control Centre and long-press the Screen Recording button.<br>
+            4. Choose <strong>BeamRoom</strong> and begin broadcasting.
+        </p>
+        <p>
+            On the viewer side, open BeamRoom, switch to the <strong>Watch</strong> tab, and follow the prompts to join using
+            the host’s room code.
+        </p>
 
-    <h3>Does BeamRoom send my screen through your servers?</h3>
-    <p>
-        No. BeamRoom is designed for local, peer-to-peer sharing. Screen video and audio are sent directly
-        between the host and connected viewers using the local network. We do not run servers that see your stream.
-    </p>
+        <h3>Does BeamRoom send my screen through your servers?</h3>
+        <p>
+            No. BeamRoom is designed for local, peer-to-peer sharing. Screen video and audio are sent directly
+            between the host and connected viewer devices using the local network. We do not run servers that see your stream.
+        </p>
 
-    <h3>Can I use BeamRoom over the internet?</h3>
-    <p>
-        BeamRoom is meant for nearby sharing where devices are on the same Wi-Fi network or close enough
-        for peer-to-peer connections. It is not a remote desktop service and is not optimised for
-        long-distance internet use.
-    </p>
+        <h3>Can I use BeamRoom over the internet?</h3>
+        <p>
+            BeamRoom is meant for nearby sharing where devices are on the same Wi-Fi network or close enough
+            for peer-to-peer connections. It is not a remote desktop service and is not optimised for
+            long-distance internet use.
+        </p>
 
-    <h3>How do I restore Pro or other purchases?</h3>
-    <p>
-        If you reinstall the app or move to a new device:
-    </p>
-    <p>
-        1. Open BeamRoom.<br>
-        2. Go to the Pro or upgrade screen.<br>
-        3. Tap <strong>Restore Purchases</strong> and confirm with your Apple ID.
-    </p>
-    <p>
-        As long as you are signed in with the same Apple ID that made the original purchase, Apple will restore
-        your entitlement without charging again.
-    </p>
+        <h3>How do I restore Pro or other purchases?</h3>
+        <p>
+            If you reinstall the app or move to a new device:
+        </p>
+        <p>
+            1. Open BeamRoom.<br>
+            2. Go to the Pro or upgrade screen.<br>
+            3. Tap <strong>Restore Purchases</strong> and confirm with your Apple ID.
+        </p>
+        <p>
+            As long as you are signed in with the same Apple ID that made the original purchase, Apple will restore
+            your entitlement without charging again.
+        </p>
 
-    <h3>Why can’t a viewer connect?</h3>
-    <p>Check the following:</p>
-    <ul>
-        <li>Both host and viewer devices are running iOS&nbsp;26 or later.</li>
-        <li>Wi-Fi is enabled on both devices.</li>
-        <li>The viewer has entered the correct room or pairing code.</li>
-        <li>Any VPNs or very restrictive firewalls are switched off or relaxed.</li>
-    </ul>
-    <p>
-        If problems continue, try restarting BeamRoom (or the devices) and creating a fresh room.
-    </p>
+        <h3>Why can’t a viewer connect?</h3>
+        <p>Check the following:</p>
+        <ul>
+            <li>Both host and viewer devices are running iOS&nbsp;26 or later.</li>
+            <li>Wi-Fi is enabled on both devices.</li>
+            <li>The viewer has entered the correct room or pairing code.</li>
+            <li>Any VPNs or very restrictive firewalls are switched off or relaxed.</li>
+        </ul>
+        <p>
+            If problems continue, try restarting BeamRoom (or the devices) and creating a fresh room.
+        </p>
 
-    <h3>How do I delete my data?</h3>
-    <ul>
-        <li>To remove local app data and settings, delete BeamRoom from the device.</li>
-        <li>If recordings were saved to Photos or Files, remove those separately in those apps.</li>
-        <li>
-            If you emailed us for support and would like those emails deleted, send a follow-up request and
-            we will erase them where reasonably possible.
-        </li>
-    </ul>
-    <p>
-        For the Privacy Policy, see <a href="privacy.html">beamroom.app/privacy.html</a>.
-    </p>
+        <h3>How do I delete my data?</h3>
+        <ul>
+            <li>To remove local app data and settings, delete BeamRoom from the device.</li>
+            <li>If recordings were saved to Photos or Files, remove those separately in those apps.</li>
+            <li>
+                If you emailed us for support and would like those emails deleted, send a follow-up request and
+                we will erase them where reasonably possible.
+            </li>
+        </ul>
+        <p>
+            For the Privacy Policy, see <a href="privacy.html">beamroom.app/privacy.html</a>.
+        </p>
+    </section>
 
     <footer>
         © BeamRoom.
