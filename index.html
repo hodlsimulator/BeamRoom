@@ -51,4 +51,183 @@
 
         .card {
             background: var(--card-bg);
-            border-radius: 18
+            border-radius: 18px;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow);
+            padding: 1.75rem 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .card + .card {
+            margin-top: 1.25rem;
+        }
+
+        .hero {
+            padding: 2rem 1.75rem 1.75rem;
+        }
+
+        .hero-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        h1 {
+            font-size: 2.25rem;
+            letter-spacing: -0.02em;
+            margin: 0;
+        }
+
+        .lead {
+            font-size: 1.1rem;
+            color: var(--muted);
+            margin: 0.35rem 0 0;
+        }
+
+        nav {
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+
+        nav a {
+            margin-left: 1.25rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin: 0 0 0.75rem;
+        }
+
+        p {
+            line-height: 1.55;
+            margin: 0.25rem 0 0.75rem;
+        }
+
+        ul {
+            margin: 0.25rem 0 0.75rem 1.2rem;
+            padding: 0;
+        }
+
+        li {
+            line-height: 1.5;
+            margin-bottom: 0.25rem;
+        }
+
+        a {
+            color: var(--link);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+            color: var(--link-hover);
+        }
+
+        .meta {
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+
+        footer {
+            margin-top: 1.75rem;
+            text-align: left;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        @media (max-width: 600px) {
+            .hero-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            nav a {
+                margin-left: 0;
+                margin-right: 1rem;
+            }
+
+            .hero {
+                padding: 1.75rem 1.25rem 1.5rem;
+            }
+
+            .card {
+                padding: 1.5rem 1.25rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <section class="card hero">
+        <div class="hero-header">
+            <div>
+                <h1>BeamRoom</h1>
+                <p class="lead">High-quality, serverless screen sharing for iPhone and iPad.</p>
+            </div>
+            <nav>
+                <a href="privacy.html">Privacy Policy</a>
+                <a href="support.html">Support</a>
+            </nav>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Share your screen in seconds</h2>
+        <p>
+            BeamRoom lets a host device mirror its screen to nearby iPhones and iPads.
+            Start a room on the Share tab, choose BeamRoom from Control Centre’s
+            screen recording button, and the host screen appears on connected viewers.
+        </p>
+    </section>
+
+    <section class="card">
+        <h2>Host on one device, watch nearby</h2>
+        <p>
+            Use one iPhone or iPad as the host and watch from nearby devices.
+            BeamRoom is built for simple, same-room sharing between a host and a small
+            number of devices in the area, rather than large remote audiences.
+        </p>
+    </section>
+
+    <section class="card">
+        <h2>Local-only, peer-to-peer streaming</h2>
+        <p>BeamRoom focuses on nearby sharing:</p>
+        <ul>
+            <li>Devices discover each other over Wi-Fi and Apple’s peer-to-peer technologies.</li>
+            <li>Screen video and optional microphone audio flow directly between devices on the local network.</li>
+            <li>There are no BeamRoom-run servers relaying or storing your stream.</li>
+        </ul>
+    </section>
+
+    <section class="card">
+        <h2>ReplayKit capture and adaptive video</h2>
+        <p>
+            BeamRoom uses Apple’s ReplayKit to capture the host screen and encode it on-device
+            before sending it to viewers. Video adapts to network conditions, aiming to keep
+            the stream smooth even when Wi-Fi gets busy.
+        </p>
+    </section>
+
+    <section class="card">
+        <h2>Made for iOS 26</h2>
+        <p>
+            BeamRoom is designed for iOS&nbsp;26 and later, using modern Apple frameworks
+            including ReplayKit and Network.framework. There are no third-party analytics SDKs
+            and no advertising. No account is required.
+        </p>
+        <p class="meta">
+            Publisher: BeamRoom • Ireland
+        </p>
+        <p>
+            <a href="privacy.html">Read the Privacy Policy</a>
+        </p>
+    </section>
+
+    <footer>
+        © BeamRoom. All rights reserved.
+    </footer>
+</main>
+</body>
+</html>
