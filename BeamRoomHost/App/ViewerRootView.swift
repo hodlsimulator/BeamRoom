@@ -23,7 +23,6 @@ import WiFiAware
 
 @MainActor
 final class ViewerViewModel: ObservableObject {
-
     @Published var code: String = BeamControlClient.randomCode()
     @Published var selectedHost: DiscoveredHost?
     @Published var showPairSheet: Bool = false
@@ -117,10 +116,9 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard
-            case .paired(_, let maybePort) = client.status,
-            let udpPort = maybePort,
-            let selected = selectedHost
+        guard case .paired(_, let maybePort) = client.status,
+              let udpPort = maybePort,
+              let selected = selectedHost
         else {
             return
         }
@@ -131,9 +129,8 @@ final class ViewerViewModel: ObservableObject {
         } ?? selected
 
         // 1) Prefer resolved IPv4/IPv6 endpoint.
-        if
-            let preferred = updated.preferredEndpoint,
-            case let .hostPort(host: host, port: _) = preferred
+        if let preferred = updated.preferredEndpoint,
+           case let .hostPort(host: host, port: _) = preferred
         {
             media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
@@ -199,7 +196,6 @@ final class ViewerViewModel: ObservableObject {
 // MARK: - Root view
 
 struct ViewerRootView: View {
-
     @StateObject private var model = ViewerViewModel()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -209,7 +205,7 @@ struct ViewerRootView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
+                liquidBackground
 
                 if let cgImage = model.media.lastImage {
                     videoView(cgImage)
@@ -230,6 +226,13 @@ struct ViewerRootView: View {
                         }
                         .accessibilityLabel("About BeamRoom")
                     }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if model.media.lastImage == nil {
+                    bottomControlsCard
+                        .padding(.horizontal)
+                        .padding(.vertical, 10)
                 }
             }
         }
@@ -311,7 +314,6 @@ struct ViewerRootView: View {
 // MARK: - Layout helpers
 
 private extension ViewerRootView {
-
     /// Keeps the device awake while there is live video on screen.
     func updateIdleTimer(forHasVideo hasVideo: Bool) {
         let desired = hasVideo
@@ -320,57 +322,109 @@ private extension ViewerRootView {
         }
     }
 
-    // Idle state before any video arrives.
-    var idleStateView: some View {
-        VStack(spacing: 28) {
-            Spacer()
+    // MARK: Background
 
-            VStack(spacing: 12) {
-                Image(systemName: "rectangle.on.rectangle")
-                    .font(.system(size: 52, weight: .semibold))
-                    .foregroundStyle(.white)
+    var liquidBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.04, green: 0.05, blue: 0.12),
+                    Color(red: 0.01, green: 0.01, blue: 0.05)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
 
-                Text("Join a screen")
-                    .font(.title)
-                    .bold()
-                    .foregroundColor(.white)
+            // Cool blue glow behind the hero card.
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.6),
+                            Color.accentColor.opacity(0.0)
+                        ],
+                        center: .topLeading,
+                        startRadius: 10,
+                        endRadius: 260
+                    )
+                )
+                .blur(radius: 40)
+                .offset(x: -40, y: -90)
 
-                Text(idleSubtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.horizontal, 24)
+            // Warm complementary glow near the bottom controls.
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.orange.opacity(0.45),
+                            Color.orange.opacity(0.0)
+                        ],
+                        center: .bottomTrailing,
+                        startRadius: 10,
+                        endRadius: 260
+                    )
+                )
+                .blur(radius: 50)
+                .offset(x: 80, y: 140)
 
-            if model.browser.hosts.isEmpty {
-                discoveringView
-            } else {
-                primaryConnectButton()
-
-                if model.browser.hosts.count > 1 {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Other nearby Hosts")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        hostList
-                    }
-                }
-            }
-
-            if model.showPermHint && model.browser.hosts.isEmpty {
-                permissionHint
-            }
-
-            Spacer()
-
-            bottomControls
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+            // Soft diagonal streak.
+            RoundedRectangle(cornerRadius: 200, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.12),
+                            Color.white.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .rotationEffect(.degrees(-18))
+                .blur(radius: 60)
+                .offset(x: 40, y: 40)
         }
-        .padding(.horizontal, 16)
+        .ignoresSafeArea()
     }
 
-    // Active video mode with a minimal control overlay.
+    // MARK: Idle state before any video arrives.
+
+    var idleStateView: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 20) {
+                Spacer(minLength: 24)
+
+                heroCard
+
+                if model.browser.hosts.isEmpty {
+                    discoveringView
+                } else {
+                    primaryConnectButton()
+
+                    if model.browser.hosts.count > 1 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Other nearby Hosts")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.75))
+
+                            hostList
+                        }
+                    }
+                }
+
+                if model.showPermHint && model.browser.hosts.isEmpty {
+                    permissionHint
+                }
+
+                Spacer(minLength: 40)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 70) // space above pinned bottom controls
+        }
+    }
+
+    // MARK: Active video mode with a minimal control overlay.
+
     @ViewBuilder
     func videoView(_ cgImage: CGImage) -> some View {
         Image(uiImage: UIImage(cgImage: cgImage))
@@ -396,22 +450,94 @@ private extension ViewerRootView {
             }
     }
 
+    // MARK: Hero card
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        StepChip(number: 1, label: "Join")
+                    }
+
+                    Text("Join a screen")
+                        .font(.title2.weight(.semibold))
+
+                    Text(idleSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer()
+
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 38, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.95),
+                                Color.white.opacity(0.5)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .padding(10)
+                    .background(
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.26),
+                                        Color.white.opacity(0.10)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+            }
+
+            HStack(spacing: 8) {
+                StatusPill(
+                    icon: "dot.radiowaves.left.and.right",
+                    label: hostsStatusLabel
+                )
+            }
+            .font(.caption2)
+        }
+        .padding(20)
+        .glassCard(cornerRadius: 30)
+        .foregroundStyle(.white)
+    }
+
+    private var hostsStatusLabel: String {
+        let count = model.browser.hosts.count
+
+        switch count {
+        case 0:
+            return "Searching for Hosts"
+        case 1:
+            return "1 Host found"
+        default:
+            return "\(count) Hosts found"
+        }
+    }
+
     private var idleSubtitle: String {
         let count = model.browser.hosts.count
 
         if count == 0 {
             return "Once a Host on this network starts sharing, it appears here."
         } else if count == 1 {
-            return """
-            Found 1 nearby Host.
-            Connect to start watching.
-            """
+            return "Found 1 nearby Host. Connect to start watching."
         } else {
-            return """
-            Found \(count) nearby Hosts. Choose one to start watching.
-            """
+            return "Found \(count) nearby Hosts. Choose one to start watching."
         }
     }
+
+    // MARK: Host list + discovery
 
     private var primaryHost: DiscoveredHost? {
         if let selected = model.selectedHost {
@@ -426,14 +552,15 @@ private extension ViewerRootView {
             Button {
                 model.pick(host)
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: 14) {
                     Image(systemName: "play.circle.fill")
-                        .imageScale(.large)
+                        .font(.system(size: 28, weight: .semibold))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Connect to")
                             .font(.caption)
-                            .opacity(0.9)
+                            .foregroundStyle(.white.opacity(0.8))
+
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -441,27 +568,38 @@ private extension ViewerRootView {
                     }
 
                     Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 14)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+            .glassCard(cornerRadius: 24)
         }
     }
 
     @ViewBuilder
     var discoveringView: some View {
-        VStack(spacing: 8) {
-            ProgressView()
-                .tint(.white)
-            Text("Looking for nearby Hosts on this network…")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(.white)
+
+                Text("Looking for nearby Hosts on this network…")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+
+            Text("Make sure the Host is on the same Wi‑Fi network.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.7))
         }
-        .padding(.top, 4)
+        .padding(16)
+        .glassCard(cornerRadius: 22)
+        .foregroundStyle(.white)
     }
 
     @ViewBuilder
@@ -483,21 +621,20 @@ private extension ViewerRootView {
 
                             Text("Tap to connect")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.white.opacity(0.7))
                         }
 
                         Spacer()
 
                         Image(systemName: "chevron.right")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)
+                .glassCard(cornerRadius: 18)
             }
         }
     }
@@ -514,7 +651,7 @@ private extension ViewerRootView {
 
                 Text("Local Network access for BeamRoom may need to be enabled in Settings.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.8))
             }
 
             Spacer(minLength: 6)
@@ -524,21 +661,64 @@ private extension ViewerRootView {
                     UIApplication.shared.open(url)
                 }
             }
-            .buttonStyle(.bordered)
-            .font(.footnote)
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.18))
+            )
         }
-        .padding(12)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(14)
+        .glassCard(cornerRadius: 18)
+        .foregroundStyle(.white)
     }
 
-    @ViewBuilder
-    var bottomControls: some View {
-        HStack {
+    // MARK: Bottom controls (pinned)
+
+    private var bottomControlsCard: some View {
+        HStack(spacing: 12) {
             awarePickButton()
+
             Spacer()
+
             connectionStatus
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.20),
+                                    Color.white.opacity(0.06)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.7),
+                                    Color.white.opacity(0.15)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.0
+                        )
+                )
+        )
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
     }
 
     @ViewBuilder
@@ -546,11 +726,15 @@ private extension ViewerRootView {
         Button {
             model.showAwareSheet = true
         } label: {
-            Label("Nearby pairing", systemImage: "antenna.radiowaves.left.and.right")
-                .font(.footnote)
-                .labelStyle(.titleAndIcon)
+            HStack(spacing: 6) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .imageScale(.medium)
+
+                Text("Nearby pairing")
+                    .font(.footnote.weight(.semibold))
+            }
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -562,24 +746,26 @@ private extension ViewerRootView {
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.8))
 
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.8))
 
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
-                .font(.footnote)
+                .font(.footnote.weight(.semibold))
                 .foregroundStyle(.green)
 
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
-                .font(.footnote)
-                .foregroundStyle(.red)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.orange)
         }
     }
+
+    // MARK: Wi‑Fi Aware sheet
 
     @ViewBuilder
     func awarePickSheet() -> some View {
@@ -597,9 +783,7 @@ private extension ViewerRootView {
                     BeamLog.info("Aware picker selection", tag: "viewer")
                     model.showAwareSheet = false
                 },
-                label: {
-                    Text("Pair Viewer")
-                },
+                label: { Text("Pair Viewer") },
                 fallback: {
                     VStack(spacing: 12) {
                         Text("Wi‑Fi Aware not available.")
@@ -637,10 +821,103 @@ private extension ViewerRootView {
     }
 }
 
+// MARK: - Small reusable views for styling
+
+private struct StatusPill: View {
+    let icon: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .imageScale(.small)
+            Text(label)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.16))
+        )
+    }
+}
+
+private struct StepChip: View {
+    let number: Int
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("\(number)")
+                .font(.caption2.weight(.semibold))
+                .frame(width: 16, height: 16)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.9))
+                )
+                .foregroundColor(Color.accentColor)
+
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+        )
+    }
+}
+
+private struct GlassCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .background(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.20),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.9),
+                                        Color.white.opacity(0.15)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.0
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.45), radius: 16, x: 0, y: 8)
+            )
+    }
+}
+
+private extension View {
+    func glassCard(cornerRadius: CGFloat = 24) -> some View {
+        modifier(GlassCardModifier(cornerRadius: cornerRadius))
+    }
+}
+
 // MARK: - Pair Sheet
 
 private struct PairSheet: View {
-
     @ObservedObject var model: ViewerViewModel
     @State private var firedSuccessHaptic = false
 
@@ -650,6 +927,7 @@ private struct PairSheet: View {
                 if let host = model.selectedHost {
                     Text("Pairing with")
                         .font(.headline)
+
                     Text(host.name)
                         .font(.title3)
                         .bold()
@@ -672,8 +950,7 @@ private struct PairSheet: View {
                         .foregroundStyle(.secondary)
 
                 case .connecting(let hostName, _):
-                    Label("Connecting to \(hostName)…",
-                          systemImage: "arrow.triangle.2.circlepath")
+                    Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
 
                 case .waitingAcceptance:
@@ -763,8 +1040,7 @@ private struct PairSheet: View {
                 }
             }
             .onAppear {
-                if case .paired = model.client.status,
-                   model.client.broadcastOn {
+                if case .paired = model.client.status, model.client.broadcastOn {
                     model.maybeStartMedia()
                 }
             }
