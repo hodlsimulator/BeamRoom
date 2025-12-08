@@ -30,7 +30,7 @@ final class HostViewModel: ObservableObject {
     private var broadcastPoll: DispatchSourceTimer?
 
     init() {
-        let auto = BeamConfig.autoAcceptDuringTest
+        let auto = false
         self.server = BeamControlServer(autoAccept: auto)
         self.autoAccept = auto
 
