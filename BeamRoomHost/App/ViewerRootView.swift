@@ -5,9 +5,6 @@
 //  Created by . . on 9/21/25.
 //
 
-// ViewerRootView.swift
-// BeamRoomHost
-
 import SwiftUI
 import Combine
 import Network
@@ -111,10 +108,9 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard
-            case .paired(_, let maybePort) = client.status,
-            let udpPort = maybePort,
-            let selected = selectedHost
+        guard case .paired(_, let maybePort) = client.status,
+              let udpPort = maybePort,
+              let selected = selectedHost
         else {
             return
         }
@@ -173,7 +169,11 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
+        guard let host = browser.hosts.first,
+              browser.hosts.count == 1
+        else {
+            return
+        }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -191,6 +191,7 @@ final class ViewerViewModel: ObservableObject {
 struct ViewerRootView: View {
     @StateObject var model = ViewerViewModel()
     @Environment(\.scenePhase) private var scenePhase
+
     @State private var showAbout = false
     @State private var autoDismissedOnFirstFrame = false
 
@@ -296,9 +297,6 @@ struct ViewerRootView: View {
         .sheet(isPresented: $model.showPairSheet) {
             PairSheet(model: model)
                 .presentationDetents([.fraction(0.35), .medium])
-        }
-        .sheet(isPresented: $model.showAwareSheet) {
-            awarePickSheet()
         }
         .sheet(isPresented: $showAbout) {
             AboutView()
