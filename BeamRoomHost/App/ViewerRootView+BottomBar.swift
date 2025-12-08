@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import BeamCore
 
 extension ViewerRootView {
     // MARK: Bottom controls (pinned)

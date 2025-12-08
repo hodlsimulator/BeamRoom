@@ -189,7 +189,7 @@ final class ViewerViewModel: ObservableObject {
 // MARK: - Root view
 
 struct ViewerRootView: View {
-    @StateObject private var model = ViewerViewModel()
+    @StateObject var model = ViewerViewModel()
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showAbout = false
