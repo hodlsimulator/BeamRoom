@@ -160,7 +160,6 @@ final class HostViewModel: ObservableObject {
 struct HostRootView: View {
     @StateObject private var model = HostViewModel()
     @StateObject private var broadcastController = BroadcastLaunchController()
-
     @State private var showingAbout = false
     @State private var showingBroadcastHelp = false
 
@@ -196,6 +195,8 @@ struct HostRootView: View {
                     .padding(.vertical, 12)
             }
         }
+        // Keep the whole screen dark-styled, so the title is white even in system light mode.
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .sheet(isPresented: $showingAbout) {
             AboutView()
         }
@@ -204,11 +205,21 @@ struct HostRootView: View {
             isPresented: $showingBroadcastHelp,
             titleVisibility: .visible
         ) {
-            Button("Open Screen Broadcast controls") {
+            Button {
                 broadcastController.startBroadcast()
+            } label: {
+                Text("Open Screen Broadcast controls")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
 
-            Button("Cancel", role: .cancel) { }
+            Button(role: .cancel) {
+                // no extra action needed
+            } label: {
+                Text("Cancel")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+            }
         } message: {
             Text(
                 "If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose “BeamRoom”, then tap Start Broadcast.\n\nOnce broadcasting, video is sent to paired Viewers even while this app is in the background."
@@ -352,6 +363,8 @@ struct HostRootView: View {
 
                     Text(model.broadcastOn ? "Manage broadcast" : "Start sharing")
                         .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
                 .foregroundColor(Color.accentColor)
                 .frame(maxWidth: .infinity)
@@ -368,14 +381,19 @@ struct HostRootView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .shadow(color: Color.accentColor.opacity(0.45), radius: 22, x: 0, y: 10)
+                        .shadow(
+                            color: Color.accentColor.opacity(0.45),
+                            radius: 22,
+                            x: 0,
+                            y: 10
+                        )
                 )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
                 model.broadcastOn
-                ? "Open Screen Broadcast controls"
-                : "Start hosting and open Screen Broadcast sheet"
+                    ? "Open Screen Broadcast controls"
+                    : "Start hosting and open Screen Broadcast sheet"
             )
 
             statusPills
@@ -387,8 +405,11 @@ struct HostRootView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "questionmark.circle")
                             .imageScale(.small)
+
                         Text("Problems starting the broadcast?")
                             .font(.footnote.weight(.medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .foregroundStyle(.white.opacity(0.9))
                 }
@@ -433,21 +454,24 @@ struct HostRootView: View {
             HStack {
                 HStack(spacing: 8) {
                     StepChip(number: 0, label: "Optional")
+
                     Text("Host settings")
                         .font(.subheadline.weight(.semibold))
                 }
 
                 Spacer()
 
-                Label(model.started ? "Hosting on" : "Not hosting",
-                      systemImage: model.started ? "wifi.router.fill" : "wifi.slash")
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.10))
-                    )
+                Label(
+                    model.started ? "Hosting on" : "Not hosting",
+                    systemImage: model.started ? "wifi.router.fill" : "wifi.slash"
+                )
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.10))
+                )
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -477,10 +501,13 @@ struct HostRootView: View {
             Button {
                 model.toggleServer()
             } label: {
-                Label(
-                    model.started ? "Stop hosting only" : "Start hosting only",
-                    systemImage: model.started ? "stop.circle.fill" : "play.circle"
-                )
+                Label {
+                    Text(model.started ? "Stop hosting only" : "Start hosting only")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                } icon: {
+                    Image(systemName: model.started ? "stop.circle.fill" : "play.circle")
+                }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -511,8 +538,10 @@ struct HostRootView: View {
             HStack {
                 HStack(spacing: 8) {
                     StepChip(number: 2, label: "Pair")
+
                     Image(systemName: "person.2.wave.2.fill")
                         .imageScale(.large)
+
                     Text("Pairing")
                         .font(.headline)
                 }
@@ -557,11 +586,16 @@ struct HostRootView: View {
                         } label: {
                             Text("Decline")
                                 .font(.subheadline)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 9)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
+                                        .strokeBorder(
+                                            Color.white.opacity(0.6),
+                                            lineWidth: 1
+                                        )
                                 )
                         }
                         .buttonStyle(.plain)
@@ -571,7 +605,10 @@ struct HostRootView: View {
                         } label: {
                             HStack {
                                 Image(systemName: "checkmark")
+
                                 Text("Pair viewer")
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.9)
                             }
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity)

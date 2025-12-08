@@ -191,7 +191,6 @@ final class ViewerViewModel: ObservableObject {
 struct ViewerRootView: View {
     @StateObject var model = ViewerViewModel()
     @Environment(\.scenePhase) private var scenePhase
-
     @State private var showAbout = false
     @State private var autoDismissedOnFirstFrame = false
 
@@ -229,6 +228,8 @@ struct ViewerRootView: View {
                 }
             }
         }
+        // Same as Share tab: force a dark toolbar so the title is white on the dark background.
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .task {
             model.startDiscovery()
         }
@@ -250,6 +251,7 @@ struct ViewerRootView: View {
                 model.selectedHost = nil
                 model.hasAutoConnectedToPrimaryHost = false
             }
+
             model.autoConnectIfNeeded()
         }
         .onChange(of: model.client.status) { _, newStatus in

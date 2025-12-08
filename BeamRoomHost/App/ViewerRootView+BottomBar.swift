@@ -1,8 +1,8 @@
 //
-//  ViewerRootView+BottomBar.swift
-//  BeamRoomHost
+// ViewerRootView+BottomBar.swift
+// BeamRoomHost
 //
-//  Created by . . on 12/8/25.
+// Created by . . on 12/8/25.
 //
 
 import SwiftUI
@@ -60,10 +60,13 @@ extension ViewerRootView {
             model.showAwareSheet = true
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
+                Image(systemName: "antenna.radiowaves.left.and-right")
                     .imageScale(.medium)
+
                 Text("Nearby pairing")
                     .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
         }
         .buttonStyle(.plain)
