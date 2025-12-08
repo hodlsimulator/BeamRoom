@@ -124,11 +124,15 @@ extension ViewerRootView {
         let count = model.browser.hosts.count
 
         if count == 0 {
-            return "Once a Host on this network starts sharing, it appears here."
+            // No Hosts discovered yet.
+            // Explain that available screens will show up in the list below.
+            return "When a Host on this network is available, it will show up in the list below so it can be joined."
         } else if count == 1 {
-            return "Found 1 nearby Host.\nConnect to start watching."
+            // Single Host – matches the auto‑connect behaviour.
+            return "Found 1 nearby Host below.\nBeamRoom will try to connect automatically."
         } else {
-            return "Found \(count) nearby Hosts.\nChoose one to start watching."
+            // Multiple Hosts – user chooses which one to join.
+            return "Found \(count) nearby Hosts below.\nChoose one to start watching."
         }
     }
 
