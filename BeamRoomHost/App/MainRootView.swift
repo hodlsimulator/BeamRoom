@@ -1,8 +1,8 @@
 //
-//  MainRootView.swift
-//  BeamRoomHost
+// MainRootView.swift
+// BeamRoomHost
 //
-//  Created by . . on 12/1/25.
+// Created by . . on 12/1/25.
 //
 
 import SwiftUI
@@ -15,15 +15,19 @@ enum BeamMode: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .share: return "Share"
-        case .watch: return "Watch"
+        case .share:
+            return "Share"
+        case .watch:
+            return "Watch"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .share: return "rectangle.on.rectangle"
-        case .watch: return "eye"
+        case .share:
+            return "rectangle.on.rectangle"
+        case .watch:
+            return "eye"
         }
     }
 }
@@ -36,15 +40,20 @@ struct MainRootView: View {
         TabView(selection: $selectedMode) {
             HostRootView()
                 .tabItem {
-                    Label(BeamMode.share.label, systemImage: BeamMode.share.systemImage)
+                    Label(BeamMode.share.label,
+                          systemImage: BeamMode.share.systemImage)
                 }
                 .tag(BeamMode.share)
 
             ViewerRootView()
                 .tabItem {
-                    Label(BeamMode.watch.label, systemImage: BeamMode.watch.systemImage)
+                    Label(BeamMode.watch.label,
+                          systemImage: BeamMode.watch.systemImage)
                 }
                 .tag(BeamMode.watch)
         }
+        // Force the whole Host app into a dark colour scheme so the
+        // navigation and tab bars use light foreground content.
+        .preferredColorScheme(.dark)
     }
 }

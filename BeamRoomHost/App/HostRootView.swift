@@ -814,6 +814,8 @@ private struct StepChip: View {
 
             Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
