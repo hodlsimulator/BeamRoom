@@ -25,6 +25,7 @@ final class HostViewModel: ObservableObject {
     @Published var udpPeer: String? = nil
 
     let server: BeamControlServer
+
     private var cancellables = Set<AnyCancellable>()
     private var broadcastPoll: DispatchSourceTimer?
 
@@ -165,17 +166,27 @@ struct HostRootView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    quickStartCard
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    heroCard
                     hostSettingsCard
-                    broadcastHelpRow
                 }
                 .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 32) // extra space above the pinned pairing card
+                .padding(.top, 16)
+                .padding(.bottom, 40) // space above pinned pairing card
             }
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color.black,
+                        Color.black,
+                        Color(uiColor: .systemBackground)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
             .navigationTitle("Share")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -187,7 +198,6 @@ struct HostRootView: View {
                     .accessibilityLabel("About BeamRoom")
                 }
             }
-            // Pinned pairing card – always visible at the bottom
             .safeAreaInset(edge: .bottom) {
                 pairingCard
                     .padding(.horizontal)
@@ -222,182 +232,251 @@ struct HostRootView: View {
         }
     }
 
-    // MARK: - Cards
+    // MARK: - Main hero card
 
-    /// Top card: one big button that both starts hosting and opens the Broadcast sheet.
-    private var quickStartCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Quick start")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
+    private var heroCard: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.95),
+                            Color.accentColor.opacity(0.7),
+                            Color.purple.opacity(0.9)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
 
-            VStack(alignment: .leading, spacing: 12) {
-                if !model.broadcastOn {
-                    if !model.started {
-                        // Step 1 – Start hosting + prepare broadcast.
-                        Text("Start sharing")
-                            .font(.headline)
-                        Text("Starts hosting and opens the Screen Broadcast sheet so nearby Viewers can connect.")
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(heroTitle)
+                            .font(.title2.weight(.semibold))
+
+                        Text(heroSubtitle)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        // Step 2 – Just start the Screen Broadcast.
-                        Text("Start Screen Broadcast")
-                            .font(.headline)
-                        Text("Start the Screen Broadcast so the screen is mirrored to paired Viewers.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.85))
                     }
-                } else {
-                    Text("Streaming live")
-                        .font(.headline)
-                    Text("Broadcast is ON. Open the Screen Broadcast controls to stop or restart.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if model.broadcastOn {
+                        LiveBadge(text: "Live")
+                    } else if model.started {
+                        LiveBadge(text: "Ready")
+                    } else {
+                        Image(systemName: "rectangle.on.rectangle.badge.person.crop")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.95))
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.white.opacity(0.16))
+                            )
+                    }
                 }
 
                 Button {
                     startQuickShare()
                 } label: {
-                    Label(
-                        model.broadcastOn
-                            ? "Open Screen Broadcast controls"
-                            : (model.started ? "Start Screen Broadcast" : "Start sharing"),
-                        systemImage: model.broadcastOn
-                            ? "dot.radiowaves.left.and.right"
-                            : "play.circle.fill"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
+                    HStack(spacing: 10) {
+                        Image(systemName: model.broadcastOn ? "dot.radiowaves.left.and.right" : "play.fill")
+                            .imageScale(.large)
 
-                // Hidden system picker – this is what actually talks to ReplayKit.
+                        Text(model.broadcastOn ? "Manage broadcast" : "Start sharing")
+                            .font(.headline.weight(.semibold))
+                    }
+                    .foregroundColor(Color.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    model.broadcastOn
+                    ? "Open Screen Broadcast controls"
+                    : "Start hosting and open Screen Broadcast sheet"
+                )
+
+                statusPills
+
+                if !model.broadcastOn {
+                    Button {
+                        showingBroadcastHelp = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "questionmark.circle")
+                                .imageScale(.small)
+                            Text("Problems starting the broadcast?")
+                                .font(.footnote.weight(.medium))
+                        }
+                        .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Hidden system picker – the large button taps this internally.
                 BroadcastPickerShim(controller: broadcastController)
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityHidden(true)
-
-                statusSummary
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.thinMaterial)
-            )
+            .padding(20)
+            .foregroundStyle(.white)
         }
     }
 
-    /// Host configuration in a compact card.
-    private var hostSettingsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Host")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
+    private var heroTitle: String {
+        if model.broadcastOn {
+            return "Streaming to Viewers"
+        } else if model.started {
+            return "Hosting is ready"
+        } else {
+            return "Share this screen"
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 12) {
+    private var heroSubtitle: String {
+        if model.broadcastOn {
+            return "Everything on the screen is mirrored to connected devices."
+        } else if model.started {
+            return "Start the Screen Broadcast when ready to go live."
+        } else {
+            return "Start hosting and open the Screen Broadcast sheet in one tap."
+        }
+    }
+
+    // MARK: - Host settings card
+
+    private var hostSettingsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Host settings")
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer()
+
+                Text("Optional")
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Service name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 TextField("Service name", text: $model.serviceName)
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
-
-                Toggle(
-                    "Auto-accept pairing",
-                    isOn: Binding(
-                        get: { model.autoAccept },
-                        set: { model.setAutoAccept($0) }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
                     )
+            }
+
+            Toggle(
+                "Auto-accept pairing",
+                isOn: Binding(
+                    get: { model.autoAccept },
+                    set: { model.setAutoAccept($0) }
                 )
+            )
 
-                Button {
-                    model.toggleServer()
-                } label: {
-                    Label(
-                        model.started ? "Stop hosting" : "Start hosting",
-                        systemImage: model.started ? "stop.circle.fill" : "play.circle.fill"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
+            Button {
+                model.toggleServer()
+            } label: {
+                Label(
+                    model.started ? "Stop hosting only" : "Start hosting only",
+                    systemImage: model.started ? "stop.circle.fill" : "play.circle"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
+            HStack(spacing: 6) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .imageScale(.small)
 
                 if let peer = model.udpPeer {
-                    Label("UDP peer: \(peer)", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.footnote)
+                    Text("UDP peer: \(peer)")
                 } else {
-                    Label("UDP peer: none", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.footnote)
+                    Text("UDP peer: none")
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-            )
+            .font(.footnote)
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(uiColor: .systemBackground))
+                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
+        )
     }
 
-    /// Small row that replaces the old tall "Screen broadcast" section.
-    private var broadcastHelpRow: some View {
-        Button {
-            showingBroadcastHelp = true
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "questionmark.circle")
-                    .imageScale(.medium)
+    // MARK: - Pairing card (pinned)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Problems starting the broadcast?")
-                        .font(.subheadline)
-                    Text("Open the Screen Broadcast controls and follow the steps.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.25))
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Pinned bottom card – pairing is always visible and visually prominent.
     private var pairingCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Pairing", systemImage: "person.2.fill")
-                    .font(.headline)
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.wave.2.fill")
+                        .imageScale(.large)
+
+                    Text("Pairing")
+                        .font(.headline)
+                }
 
                 Spacer()
 
-                if !model.sessions.isEmpty {
-                    Text(viewerCountLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.9))
+                if model.broadcastOn {
+                    LiveBadge(text: "Live")
+                } else if model.started {
+                    LiveBadge(text: "Host on")
                 }
             }
 
             if model.pendingPairs.isEmpty && model.sessions.isEmpty {
-                Text("Waiting for Viewers to pair…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.8))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Waiting for Viewers to pair…")
+                        .font(.subheadline.weight(.medium))
+
+                    Text("Ask the Viewer to open BeamRoom on another device and choose Watch.")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.85))
+                }
             }
 
             ForEach(model.pendingPairs) { pending in
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(pending.remoteDescription)
                         .font(.subheadline.weight(.semibold))
 
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("Code")
+                    HStack(alignment: .lastTextBaseline, spacing: 8) {
+                        Text("Pair code")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.8))
 
                         Text(pending.code)
-                            .font(.title3.monospacedDigit().weight(.bold))
+                            .font(.system(size: 30, weight: .bold, design: .monospaced))
                     }
 
                     HStack(spacing: 12) {
@@ -406,70 +485,83 @@ struct HostRootView: View {
                         } label: {
                             Text("Decline")
                                 .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+                                )
                         }
-                        .buttonStyle(.borderless)
-                        .tint(.white)
-
-                        Spacer()
+                        .buttonStyle(.plain)
 
                         Button {
                             model.accept(pending.id)
                         } label: {
-                            Text("Pair viewer")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(Color.white)
-                                .foregroundColor(Color.accentColor)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            HStack {
+                                Image(systemName: "checkmark")
+                                Text("Pair viewer")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.white)
+                            )
+                            .foregroundColor(Color.accentColor)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Accept pairing with \(pending.remoteDescription)")
                     }
                 }
-                .padding(.top, 4)
             }
 
             if !model.sessions.isEmpty {
                 Divider()
                     .background(Color.white.opacity(0.3))
 
-                ForEach(model.sessions) { session in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(session.remoteDescription)
-                            Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.8))
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.sessions) { session in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(session.remoteDescription)
+
+                                Text("Connected \(session.startedAt.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "checkmark.circle.fill")
+                                .imageScale(.large)
                         }
-
-                        Spacer()
-
-                        Image(systemName: "checkmark.circle.fill")
-                            .imageScale(.large)
-                            .foregroundStyle(.white)
                     }
+                    .font(.subheadline)
                 }
-                .font(.subheadline)
             }
         }
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.accentColor.opacity(0.95),
-                            Color.accentColor.opacity(0.7)
+                            Color.accentColor,
+                            Color.blue.opacity(0.9)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
         )
         .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.4), radius: 18, x: 0, y: 8)
     }
 
     // MARK: - Helpers
@@ -487,27 +579,26 @@ struct HostRootView: View {
         }
     }
 
-    private var statusSummary: some View {
+    private var statusPills: some View {
         HStack(spacing: 8) {
-            Label(
-                model.started ? "Hosting" : "Not hosting",
-                systemImage: model.started ? "wifi.router.fill" : "wifi.slash"
+            StatusPill(
+                icon: model.started ? "wifi.router.fill" : "wifi.slash",
+                label: model.started ? "Hosting on" : "Not hosting"
             )
 
-            Label(viewerCountLabel, systemImage: "person.2")
+            StatusPill(
+                icon: "person.2.fill",
+                label: viewerCountLabel
+            )
 
-            Label(
-                model.broadcastOn ? "Broadcast ON" : "Broadcast OFF",
-                systemImage: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right"
+            StatusPill(
+                icon: model.broadcastOn ? "dot.radiowaves.left.right" : "wave.3.right",
+                label: model.broadcastOn ? "Broadcast on" : "Broadcast off"
             )
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
+        .font(.caption2)
     }
 
-    /// Called by the big quick‑start button.
     /// Ensures the server is running, then taps the hidden Broadcast picker.
     private func startQuickShare() {
         if !model.started {
@@ -515,6 +606,54 @@ struct HostRootView: View {
         }
 
         broadcastController.startBroadcast()
+    }
+}
+
+// MARK: - Small reusable views
+
+private struct StatusPill: View {
+    let icon: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .imageScale(.small)
+
+            Text(label)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.16))
+        )
+    }
+}
+
+private struct LiveBadge: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                )
+
+            Text(text.uppercased())
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.16))
+        )
+        .foregroundStyle(.white)
     }
 }
 
@@ -536,7 +675,7 @@ final class BroadcastLaunchController: ObservableObject {
 }
 
 /// Invisible RPSystemBroadcastPickerView wired to a controller.
-/// The big SwiftUI button calls `startBroadcast()` which taps it.
+/// The large SwiftUI button calls `startBroadcast()` which taps it.
 struct BroadcastPickerShim: UIViewRepresentable {
     @ObservedObject var controller: BroadcastLaunchController
 
