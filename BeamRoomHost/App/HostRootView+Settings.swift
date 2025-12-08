@@ -8,16 +8,28 @@
 import SwiftUI
 
 extension HostRootView {
+
     // MARK: - Host settings card
 
     var hostSettingsCard: some View {
         VStack(alignment: .leading, spacing: 14) {
+
+            // Header: Advanced host settings + current hosting state
             HStack {
                 HStack(spacing: 8) {
-                    HostStepChip(number: 0, label: "Optional")
+                    HostStepChip(number: 0, label: "Advanced")
 
-                    Text("Host settings")
-                        .font(.subheadline.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Host settings")
+                            .font(.subheadline.weight(.semibold))
+
+                        // Short hint so this reads as “optional / advanced”
+                        Text("Optional controls for how this device hosts Viewers. Most sharing flows work fine without changing anything here.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    }
                 }
 
                 Spacer()
@@ -35,12 +47,13 @@ extension HostRootView {
                 )
             }
 
+            // Service / device name shown to Viewers
             VStack(alignment: .leading, spacing: 8) {
-                Text("Service name")
+                Text("Device name for Viewers")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                TextField("Service name", text: $model.serviceName)
+                TextField("Device name", text: $model.serviceName)
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
                     .padding(.horizontal, 10)
@@ -51,20 +64,24 @@ extension HostRootView {
                     )
             }
 
+            // Advanced: automatically accept pairing without manual tap
             Toggle(
                 "Auto-accept pairing",
                 isOn: Binding(
                     get: { model.autoAccept },
-                    set: { model.setAutoAccept($0) }
+                    set: { value in
+                        model.setAutoAccept(value)
+                    }
                 )
             )
 
+            // Advanced: turn the host server on/off without touching broadcast
             Button {
                 model.toggleServer()
             } label: {
                 Label {
-                    Text(model.started ? "Stop hosting only" : "Start hosting only")
-                        .lineLimit(1)
+                    Text(model.started ? "Turn off hosting" : "Turn on hosting (no broadcast)")
+                        .lineLimit(2)
                         .minimumScaleFactor(0.9)
                 } icon: {
                     Image(systemName: model.started ? "stop.circle.fill" : "play.circle")
@@ -74,6 +91,8 @@ extension HostRootView {
             .buttonStyle(.borderedProminent)
             .tint(Color.white.opacity(0.18))
 
+            // Low-level diagnostics – kept for DEBUG builds only
+            #if DEBUG
             HStack(spacing: 6) {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .imageScale(.small)
@@ -86,6 +105,7 @@ extension HostRootView {
                 }
             }
             .font(.footnote)
+            #endif
         }
         .padding(18)
         .hostGlassCard(cornerRadius: 22)
