@@ -166,27 +166,19 @@ struct HostRootView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    heroCard
-                    hostSettingsCard
+            ZStack {
+                liquidBackground
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        heroCard
+                        hostSettingsCard
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 20)
+                    .padding(.bottom, 44) // space above pinned pairing card
                 }
-                .padding(.horizontal)
-                .padding(.top, 16)
-                .padding(.bottom, 40) // space above pinned pairing card
             }
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color.black,
-                        Color.black,
-                        Color(uiColor: .systemBackground)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            )
             .navigationTitle("Share")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -232,108 +224,186 @@ struct HostRootView: View {
         }
     }
 
-    // MARK: - Main hero card
+    // MARK: - Background
 
-    private var heroCard: some View {
+    private var liquidBackground: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            LinearGradient(
+                colors: [
+                    Color(red: 0.04, green: 0.05, blue: 0.12),
+                    Color(red: 0.01, green: 0.01, blue: 0.05)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            // Cool blue glow behind hero card
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.6),
+                            Color.accentColor.opacity(0.0)
+                        ],
+                        center: .topLeading,
+                        startRadius: 10,
+                        endRadius: 260
+                    )
+                )
+                .blur(radius: 40)
+                .offset(x: -40, y: -80)
+
+            // Warm complementary glow near pairing area
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.orange.opacity(0.45),
+                            Color.orange.opacity(0.0)
+                        ],
+                        center: .bottomTrailing,
+                        startRadius: 10,
+                        endRadius: 260
+                    )
+                )
+                .blur(radius: 50)
+                .offset(x: 80, y: 120)
+
+            // Soft diagonal streak
+            RoundedRectangle(cornerRadius: 200, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.accentColor.opacity(0.95),
-                            Color.accentColor.opacity(0.7),
-                            Color.purple.opacity(0.9)
+                            Color.white.opacity(0.12),
+                            Color.white.opacity(0.02)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
+                .rotationEffect(.degrees(-18))
+                .blur(radius: 60)
+                .offset(x: 40, y: 40)
+        }
+        .ignoresSafeArea()
+    }
 
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(heroTitle)
-                            .font(.title2.weight(.semibold))
+    // MARK: - Main hero card (Step 1)
 
-                        Text(heroSubtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.85))
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        StepChip(number: 1, label: "Go live")
+
+                        if model.broadcastOn {
+                            LiveBadge(text: "Live")
+                        } else if model.started {
+                            LiveBadge(text: "Ready")
+                        }
                     }
 
-                    Spacer()
+                    Text(heroTitle)
+                        .font(.title2.weight(.semibold))
 
-                    if model.broadcastOn {
-                        LiveBadge(text: "Live")
-                    } else if model.started {
-                        LiveBadge(text: "Ready")
-                    } else {
-                        Image(systemName: "rectangle.on.rectangle.badge.person.crop")
-                            .font(.system(size: 30, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.95))
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.white.opacity(0.16))
-                            )
-                    }
+                    Text(heroSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.85))
                 }
 
-                Button {
-                    startQuickShare()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: model.broadcastOn ? "dot.radiowaves.left.and.right" : "play.fill")
-                            .imageScale(.large)
+                Spacer()
 
-                        Text(model.broadcastOn ? "Manage broadcast" : "Start sharing")
-                            .font(.headline.weight(.semibold))
-                    }
-                    .foregroundColor(Color.accentColor)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.white)
+                Image(systemName: "rectangle.on.rectangle.badge.person.crop")
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.9),
+                                Color.white.opacity(0.4)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
+                    .padding(10)
+                    .background(
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.24),
+                                        Color.white.opacity(0.10)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .blur(radius: 0.5)
+                    )
+            }
+
+            Button {
+                startQuickShare()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: model.broadcastOn ? "dot.radiowaves.left.and.right" : "play.fill")
+                        .imageScale(.large)
+
+                    Text(model.broadcastOn ? "Manage broadcast" : "Start sharing")
+                        .font(.headline.weight(.semibold))
+                }
+                .foregroundColor(Color.accentColor)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white,
+                                    Color.white.opacity(0.9)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: Color.accentColor.opacity(0.45), radius: 22, x: 0, y: 10)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                model.broadcastOn
+                ? "Open Screen Broadcast controls"
+                : "Start hosting and open Screen Broadcast sheet"
+            )
+
+            statusPills
+
+            if !model.broadcastOn {
+                Button {
+                    showingBroadcastHelp = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "questionmark.circle")
+                            .imageScale(.small)
+                        Text("Problems starting the broadcast?")
+                            .font(.footnote.weight(.medium))
+                    }
+                    .foregroundStyle(.white.opacity(0.9))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(
-                    model.broadcastOn
-                    ? "Open Screen Broadcast controls"
-                    : "Start hosting and open Screen Broadcast sheet"
-                )
-
-                statusPills
-
-                if !model.broadcastOn {
-                    Button {
-                        showingBroadcastHelp = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "questionmark.circle")
-                                .imageScale(.small)
-                            Text("Problems starting the broadcast?")
-                                .font(.footnote.weight(.medium))
-                        }
-                        .foregroundStyle(.white.opacity(0.9))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Hidden system picker – the large button taps this internally.
-                BroadcastPickerShim(controller: broadcastController)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .accessibilityHidden(true)
             }
-            .padding(20)
-            .foregroundStyle(.white)
+
+            // Hidden system picker – the large button taps this internally.
+            BroadcastPickerShim(controller: broadcastController)
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityHidden(true)
         }
+        .padding(20)
+        .glassCard(cornerRadius: 30)
+        .foregroundStyle(.white)
     }
 
     private var heroTitle: String {
@@ -361,18 +431,22 @@ struct HostRootView: View {
     private var hostSettingsCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Host settings")
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    StepChip(number: 0, label: "Optional")
+                    Text("Host settings")
+                        .font(.subheadline.weight(.semibold))
+                }
 
                 Spacer()
 
-                Text("Optional")
+                Label(model.started ? "Hosting on" : "Not hosting",
+                      systemImage: model.started ? "wifi.router.fill" : "wifi.slash")
                     .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .background(
                         Capsule()
-                            .fill(Color(uiColor: .secondarySystemBackground))
+                            .fill(Color.white.opacity(0.10))
                     )
             }
 
@@ -385,10 +459,10 @@ struct HostRootView: View {
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 9)
                     .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(uiColor: .secondarySystemBackground))
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
                     )
             }
 
@@ -409,7 +483,8 @@ struct HostRootView: View {
                 )
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .tint(Color.white.opacity(0.18))
 
             HStack(spacing: 6) {
                 Image(systemName: "dot.radiowaves.left.and.right")
@@ -424,23 +499,20 @@ struct HostRootView: View {
             }
             .font(.footnote)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(uiColor: .systemBackground))
-                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
-        )
+        .padding(18)
+        .glassCard(cornerRadius: 22)
+        .foregroundStyle(.white)
     }
 
-    // MARK: - Pairing card (pinned)
+    // MARK: - Pairing card (Step 2 – pinned)
 
     private var pairingCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 HStack(spacing: 8) {
+                    StepChip(number: 2, label: "Pair")
                     Image(systemName: "person.2.wave.2.fill")
                         .imageScale(.large)
-
                     Text("Pairing")
                         .font(.headline)
                 }
@@ -489,7 +561,7 @@ struct HostRootView: View {
                                 .padding(.vertical, 9)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+                                        .strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -506,7 +578,16 @@ struct HostRootView: View {
                             .padding(.vertical, 9)
                             .background(
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.white)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.white,
+                                                Color.white.opacity(0.96)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
                             )
                             .foregroundColor(Color.accentColor)
                         }
@@ -545,23 +626,38 @@ struct HostRootView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.accentColor,
-                            Color.blue.opacity(0.9)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+                .fill(.ultraThinMaterial)
+                .background(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.accentColor.opacity(0.7),
+                                    Color.blue.opacity(0.8),
+                                    Color.purple.opacity(0.7)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.7),
+                                    Color.white.opacity(0.15)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.2
+                        )
                 )
         )
         .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.4), radius: 18, x: 0, y: 8)
+        .shadow(color: .black.opacity(0.45), radius: 20, x: 0, y: 10)
     }
 
     // MARK: - Helpers
@@ -626,7 +722,7 @@ private struct StatusPill: View {
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(Color.white.opacity(0.16))
+                .fill(Color.white.opacity(0.14))
         )
     }
 }
@@ -651,9 +747,89 @@ private struct LiveBadge: View {
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(Color.white.opacity(0.16))
+                .fill(Color.white.opacity(0.18))
         )
         .foregroundStyle(.white)
+    }
+}
+
+private struct StepChip: View {
+    let number: Int
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if number > 0 {
+                Text("\(number)")
+                    .font(.caption2.weight(.semibold))
+                    .frame(width: 16, height: 16)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.9))
+                    )
+                    .foregroundColor(Color.accentColor)
+            } else {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.caption2.weight(.semibold))
+                    .frame(width: 16, height: 16)
+                    .foregroundColor(Color.white.opacity(0.85))
+            }
+
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+        )
+    }
+}
+
+private struct GlassCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .background(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.20),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.9),
+                                        Color.white.opacity(0.15)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.0
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.45), radius: 16, x: 0, y: 8)
+            )
+    }
+}
+
+private extension View {
+    func glassCard(cornerRadius: CGFloat = 24) -> some View {
+        modifier(GlassCardModifier(cornerRadius: cornerRadius))
     }
 }
 
