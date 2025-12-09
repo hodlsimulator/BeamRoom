@@ -14,8 +14,7 @@ extension ViewerRootView {
 
     var bottomControlsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-
-            // Header: Step 2 – Pair, mirroring the Host pairing card language.
+            // Header: Step 2 – Pair.
             HStack {
                 HStack(spacing: 8) {
                     ViewerStepChip(number: 2, label: "Pair")
@@ -32,10 +31,19 @@ extension ViewerRootView {
                 connectionStatus
             }
 
-            // Main Nearby pairing CTA
-            HStack {
-                nearbyPairingButton
-                Spacer()
+            if shouldShowNearbyCTA {
+                HStack {
+                    nearbyPairingButton
+                    Spacer()
+                }
+
+                Text("Use Nearby pairing if the Host above is not appearing or cannot connect over Wi‑Fi.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.85))
+            } else {
+                Text("BeamRoom connects automatically to nearby Hosts shown above.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.85))
             }
 
             // Inline Wi‑Fi Aware picker instead of a separate sheet.
@@ -82,6 +90,22 @@ extension ViewerRootView {
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.45), radius: 20, x: 0, y: 10)
         .animation(.easeInOut(duration: 0.25), value: model.showAwareSheet)
+    }
+
+    /// Whether to show the Nearby pairing CTA button.
+    private var shouldShowNearbyCTA: Bool {
+        // 1) No Hosts discovered yet → Nearby pairing is a useful escape hatch.
+        if model.browser.hosts.isEmpty {
+            return true
+        }
+
+        // 2) A previous attempt failed.
+        if case .failed = model.client.status {
+            return true
+        }
+
+        // 3) Otherwise, rely on automatic connect and hide the extra button.
+        return false
     }
 
     // MARK: Nearby pairing CTA

@@ -30,29 +30,26 @@ final class HostViewModel: ObservableObject {
     private var broadcastPoll: DispatchSourceTimer?
 
     init() {
-        let auto = false
+        // Default to auto‑accept so the common “one Host + one Viewer”
+        // flow works without extra approval taps.
+        let auto = true
+
         self.server = BeamControlServer(autoAccept: auto)
         self.autoAccept = auto
 
         server.$sessions
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.sessions = $0
-            }
+            .sink { [weak self] in self?.sessions = $0 }
             .store(in: &cancellables)
 
         server.$pendingPairs
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.pendingPairs = $0
-            }
+            .sink { [weak self] in self?.pendingPairs = $0 }
             .store(in: &cancellables)
 
         server.$udpPeer
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
-                self?.udpPeer = $0
-            }
+            .sink { [weak self] in self?.udpPeer = $0 }
             .store(in: &cancellables)
 
         // If the Screen Broadcast is already running (for example started from
@@ -225,7 +222,6 @@ struct HostRootView: View {
             Text(
                 """
                 If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose “BeamRoom”, then tap Start Broadcast.
-
                 Once broadcasting, video is sent to paired Viewers even while this app is in the background.
                 """
             )

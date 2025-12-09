@@ -10,7 +10,8 @@ import UIKit
 import BeamCore
 
 extension ViewerRootView {
-    // MARK: Idle state before any video arrives.
+
+    // MARK: Idle state before any video arrives
 
     var idleStateView: some View {
         ScrollView(showsIndicators: false) {
@@ -29,6 +30,7 @@ extension ViewerRootView {
                             Text("Other nearby Hosts")
                                 .font(.footnote.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.75))
+
                             hostList
                         }
                     }
@@ -110,6 +112,7 @@ extension ViewerRootView {
 
     private var hostsStatusLabel: String {
         let count = model.browser.hosts.count
+
         switch count {
         case 0:
             return "Searching for Hosts"
@@ -124,12 +127,11 @@ extension ViewerRootView {
         let count = model.browser.hosts.count
 
         if count == 0 {
-            // No Hosts discovered yet.
-            // Explain that available screens will show up in the list below.
-            return "When a Host on this network is available, it will show up in the list below so it can be joined."
+            // No Hosts discovered yet – explain the simple flow.
+            return "When a device starts sharing from the Share tab, it appears below and BeamRoom connects automatically."
         } else if count == 1 {
             // Single Host – matches the auto‑connect behaviour.
-            return "Found 1 nearby Host below.\nBeamRoom will try to connect automatically."
+            return "Found 1 nearby Host below.\nBeamRoom will connect automatically."
         } else {
             // Multiple Hosts – user chooses which one to join.
             return "Found \(count) nearby Hosts below.\nChoose one to start watching."
@@ -192,7 +194,7 @@ extension ViewerRootView {
                     .foregroundStyle(.white.opacity(0.9))
             }
 
-            Text("Make sure the Host is on the same Wi‑Fi network.")
+            Text("Once a Host is found, it appears above and BeamRoom connects automatically.")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
         }
