@@ -110,8 +110,7 @@ final class ViewerViewModel: ObservableObject {
 
         guard case .paired(_, let maybePort) = client.status,
               let udpPort = maybePort,
-              let selected = selectedHost
-        else {
+              let selected = selectedHost else {
             return
         }
 
@@ -170,14 +169,14 @@ final class ViewerViewModel: ObservableObject {
         }
 
         guard let host = browser.hosts.first,
-              browser.hosts.count == 1
-        else {
+              browser.hosts.count == 1 else {
             return
         }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
         code = BeamControlClient.randomCode()
+
         BeamLog.info("Auto-selected host \(host.name)", tag: "viewer")
 
         // Silent auto‑pair – no explicit Pair sheet tap needed.
@@ -289,9 +288,16 @@ struct ViewerRootView: View {
             let hasVideo = (image != nil)
             updateIdleTimer(forHasVideo: hasVideo)
 
-            if hasVideo, model.showPairSheet, !autoDismissedOnFirstFrame {
-                autoDismissedOnFirstFrame = true
-                model.showPairSheet = false
+            if hasVideo {
+                // Auto‑dismiss any pairing UI once the first frame arrives so
+                // the stream is visible without extra taps.
+                if model.showPairSheet, !autoDismissedOnFirstFrame {
+                    autoDismissedOnFirstFrame = true
+                    model.showPairSheet = false
+                }
+
+                // Collapse the inline Nearby pairing card as well.
+                model.showAwareSheet = false
             }
         }
         .sheet(isPresented: $model.showPairSheet) {

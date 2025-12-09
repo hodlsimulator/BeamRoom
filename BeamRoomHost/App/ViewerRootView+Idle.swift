@@ -11,7 +11,7 @@ import BeamCore
 
 extension ViewerRootView {
 
-    // MARK: Idle state before any video arrives
+    // MARK: - Idle state before any video arrives
 
     var idleStateView: some View {
         ScrollView(showsIndicators: false) {
@@ -30,6 +30,8 @@ extension ViewerRootView {
                             Text("Other nearby Hosts")
                                 .font(.footnote.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.75))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
 
                             hostList
                         }
@@ -48,7 +50,7 @@ extension ViewerRootView {
         }
     }
 
-    // MARK: Hero card
+    // MARK: - Hero card
 
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -60,6 +62,8 @@ extension ViewerRootView {
 
                     Text("Join a screen")
                         .font(.title2.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
 
                     Text(idleSubtitle)
                         .font(.subheadline)
@@ -138,7 +142,7 @@ extension ViewerRootView {
         }
     }
 
-    // MARK: Host list + discovery
+    // MARK: - Host list + discovery
 
     private var primaryHost: DiscoveredHost? {
         if let selected = model.selectedHost {
@@ -286,7 +290,10 @@ private struct StatusPill: View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .imageScale(.small)
+
             Text(label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -314,6 +321,8 @@ private struct StepChip: View {
 
             Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)

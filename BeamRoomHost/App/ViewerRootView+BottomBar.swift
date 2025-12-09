@@ -10,7 +10,7 @@ import BeamCore
 
 extension ViewerRootView {
 
-    // MARK: Bottom controls (pinned)
+    // MARK: - Bottom controls (pinned)
 
     var bottomControlsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -24,6 +24,8 @@ extension ViewerRootView {
 
                     Text("Nearby pairing")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
 
                 Spacer()
@@ -108,7 +110,7 @@ extension ViewerRootView {
         return false
     }
 
-    // MARK: Nearby pairing CTA
+    // MARK: - Nearby pairing CTA
 
     @ViewBuilder
     private var nearbyPairingButton: some View {
@@ -135,7 +137,7 @@ extension ViewerRootView {
         .buttonStyle(.plain)
     }
 
-    // MARK: Connection status
+    // MARK: - Connection status
 
     @ViewBuilder
     var connectionStatus: some View {
@@ -147,21 +149,29 @@ extension ViewerRootView {
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.green)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.orange)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
     }
 }
@@ -185,6 +195,8 @@ private struct ViewerStepChip: View {
 
             Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
