@@ -255,6 +255,17 @@ struct ViewerRootView: View {
             model.autoConnectIfNeeded()
         }
         .onChange(of: model.client.status) { _, newStatus in
+            // Any transition into an active connection state should collapse the
+            // expanded Nearby pairing UI so there is no extra Close tap.
+            switch newStatus {
+            case .connecting, .waitingAcceptance, .paired:
+                if model.showAwareSheet {
+                    model.showAwareSheet = false
+                }
+            default:
+                break
+            }
+
             switch newStatus {
             case .paired:
                 // Newly paired or re‑paired → ensure UDP media is running.

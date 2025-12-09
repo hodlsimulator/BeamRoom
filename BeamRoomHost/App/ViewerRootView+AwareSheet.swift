@@ -17,6 +17,7 @@ import WiFiAware
 #endif
 
 extension ViewerRootView {
+
     // MARK: Wi‑Fi Aware sheet
 
     @ViewBuilder
@@ -37,33 +38,44 @@ extension ViewerRootView {
                 },
                 label: {
                     Text("Pair Viewer")
-                },
-                fallback: {
-                    VStack(spacing: 12) {
-                        Text("Wi‑Fi Aware not available.")
-                        Button("Close") {
-                            model.showAwareSheet = false
-                        }
                         .lineLimit(1)
                         .minimumScaleFactor(0.9)
-                    }
-                    .padding()
+                },
+                fallback: {
+                    AwareUnavailableView(
+                        model: model,
+                        message: "Wi‑Fi Aware not available."
+                    )
                 }
             )
         } else {
-            VStack(spacing: 12) {
-                Text("Wi‑Fi Aware service not available.")
-                Button("Close") {
-                    model.showAwareSheet = false
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
-            }
-            .padding()
+            AwareUnavailableView(
+                model: model,
+                message: "Wi‑Fi Aware service not available."
+            )
         }
         #else
+        AwareUnavailableView(
+            model: model,
+            message: "Wi‑Fi Aware UI is not available on this build configuration."
+        )
+        #endif
+    }
+}
+
+// MARK: - Fallback view (auto‑dismisses)
+
+private struct AwareUnavailableView: View {
+    @ObservedObject var model: ViewerViewModel
+    let message: String
+
+    var body: some View {
         VStack(spacing: 12) {
-            Text("Wi‑Fi Aware UI is not available on this build configuration.")
+            Text(message)
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+
+            // Button remains for clarity, but auto‑dismiss handles the common case.
             Button("Close") {
                 model.showAwareSheet = false
             }
@@ -71,6 +83,14 @@ extension ViewerRootView {
             .minimumScaleFactor(0.9)
         }
         .padding()
-        #endif
+        .onAppear {
+            // Automatically collapse the expanded pairing UI so the stream
+            // can start without an extra Close tap.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if model.showAwareSheet {
+                    model.showAwareSheet = false
+                }
+            }
+        }
     }
 }
