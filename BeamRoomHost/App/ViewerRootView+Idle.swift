@@ -14,29 +14,11 @@ extension ViewerRootView {
     // MARK: - Idle state before any video arrives
 
     var idleStateView: some View {
-        Group {
-            if #available(iOS 16.4, *) {
-                ScrollView(showsIndicators: false) {
-                    idleScrollContent
-                        // Tiny invisible helper that reaches into the underlying UIScrollView
-                        // and locks scrolling to a vertical feel only.
-                        .overlay(
-                            VerticalScrollConfigurator()
-                                .frame(width: 0, height: 0)
-                        )
-                }
-                // Keep vertical bounce based on content size; horizontal is handled by the configurator.
-                .scrollBounceBehavior(.basedOnSize)
-            } else {
-                // Fallback for older iOS – still vertical-only content with a locked UIScrollView.
-                ScrollView(showsIndicators: false) {
-                    idleScrollContent
-                        .overlay(
-                            VerticalScrollConfigurator()
-                                .frame(width: 0, height: 0)
-                        )
-                }
-            }
+        ScrollView(showsIndicators: false) {
+            idleScrollContent
+                // Attach the UIKit helper to the scroll view so it
+                // hard-locks horizontally while keeping vertical scroll.
+                .background(VerticalScrollConfigurator())
         }
     }
 
@@ -114,7 +96,7 @@ extension ViewerRootView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     StatusPill(
-                        icon: "dot.radiowaves.left.and.right",
+                        icon: "dot.radiowaves.left.and-right",
                         label: hostsStatusLabel
                     )
 
@@ -173,8 +155,8 @@ extension ViewerRootView {
             // Single Host – matches the auto‑connect behaviour.
             return "Found 1 nearby Host. Tap below or wait for automatic pairing."
         } else {
-            // Multiple Hosts – the viewer chooses which one to join.
-            return "Found \(count) nearby Hosts. Choose one below to start watching."
+            // Multiple Hosts – user chooses which one to join.
+            return "Found \(count) nearby Hosts.\nChoose one below to start watching."
         }
     }
 
@@ -232,7 +214,7 @@ extension ViewerRootView {
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
 
-            Text("As soon as a Host is found it appears here and connects automatically. If nothing shows up, tap Start nearby pairing below.")
+            Text("As soon as a Host is found it appears here and connects automatically.\nIf nothing shows up, tap Start nearby pairing below.")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.75))
         }
@@ -312,146 +294,181 @@ extension ViewerRootView {
         .glassCard(cornerRadius: 18)
         .foregroundStyle(.white)
     }
+}
 
-    // MARK: - Small reusable views for styling
+// MARK: - Small reusable views for styling
 
-    private struct StatusPill: View {
-        let icon: String
-        let label: String
+private struct StatusPill: View {
+    let icon: String
+    let label: String
 
-        var body: some View {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .imageScale(.small)
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .imageScale(.small)
 
-                Text(label)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(0.16))
-            )
+            Text(label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-    }
-
-    private struct StepChip: View {
-        let number: Int
-        let label: String
-
-        var body: some View {
-            HStack(spacing: 5) {
-                Text("\(number)")
-                    .font(.caption2.weight(.semibold))
-                    .frame(width: 16, height: 16)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.9))
-                    )
-                    .foregroundColor(Color.accentColor)
-
-                Text(label.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(0.12))
-            )
-        }
-    }
-
-    struct GlassCardModifier: ViewModifier {
-        let cornerRadius: CGFloat
-
-        func body(content: Content) -> some View {
-            content
-                .background(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .background(
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.20),
-                                            Color.white.opacity(0.05)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.9),
-                                            Color.white.opacity(0.15)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1.0
-                                )
-                        )
-                        .shadow(
-                            color: .black.opacity(0.45),
-                            radius: 16,
-                            x: 0,
-                            y: 8
-                        )
-                )
-        }
-    }
-
-    /// Configures the underlying UIScrollView used by the SwiftUI ScrollView
-    /// so that scrolling feels firmly locked to the vertical axis.
-    private struct VerticalScrollConfigurator: UIViewRepresentable {
-        func makeUIView(context: Context) -> UIView {
-            let view = UIView(frame: .zero)
-            DispatchQueue.main.async {
-                configure(using: view)
-            }
-            return view
-        }
-
-        func updateUIView(_ uiView: UIView, context: Context) {
-            DispatchQueue.main.async {
-                configure(using: uiView)
-            }
-        }
-
-        private func configure(using view: UIView) {
-            guard let scrollView = view.enclosingScrollView else { return }
-
-            scrollView.isDirectionalLockEnabled = true
-            scrollView.alwaysBounceHorizontal = false
-            scrollView.showsHorizontalScrollIndicator = false
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.16))
+        )
     }
 }
 
-// MARK: - Shared helpers
+private struct StepChip: View {
+    let number: Int
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("\(number)")
+                .font(.caption2.weight(.semibold))
+                .frame(width: 16, height: 16)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.9))
+                )
+                .foregroundColor(Color.accentColor)
+
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+        )
+    }
+}
+
+// MARK: - Glass card styling
+
+struct GlassCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .background(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.20),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.9),
+                                        Color.white.opacity(0.15)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.0
+                            )
+                    )
+                    .shadow(
+                        color: .black.opacity(0.45),
+                        radius: 16,
+                        x: 0,
+                        y: 8
+                    )
+            )
+    }
+}
+
+extension View {
+    func glassCard(cornerRadius: CGFloat = 24) -> some View {
+        modifier(GlassCardModifier(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - Scroll locking helper
+
+private struct VerticalScrollConfigurator: UIViewRepresentable {
+
+    final class Coordinator {
+        var observation: NSKeyValueObservation?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+
+        // Defer configuration until the view is in the hierarchy,
+        // so enclosingScrollView can actually find the ScrollView.
+        DispatchQueue.main.async {
+            configure(using: view, coordinator: context.coordinator)
+        }
+
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            configure(using: uiView, coordinator: context.coordinator)
+        }
+    }
+
+    private func configure(using view: UIView, coordinator: Coordinator) {
+        guard let scrollView = view.enclosingScrollView else { return }
+
+        // Match the Share tab feel but add a hard horizontal lock.
+        scrollView.isDirectionalLockEnabled = true
+        scrollView.alwaysBounceHorizontal = false
+        scrollView.showsHorizontalScrollIndicator = false
+
+        // Clamp any horizontal offset that might sneak through.
+        coordinator.observation?.invalidate()
+        coordinator.observation = scrollView.observe(
+            \.contentOffset,
+            options: [.new]
+        ) { scrollView, _ in
+            let offset = scrollView.contentOffset
+
+            // Only adjust if there’s meaningful horizontal movement.
+            if abs(offset.x) > 0.5 {
+                let locked = CGPoint(x: 0, y: offset.y)
+                scrollView.setContentOffset(locked, animated: false)
+            }
+        }
+    }
+}
 
 private extension UIView {
-    /// Walks up the superview chain to find the nearest UIScrollView ancestor.
+    /// Walks up the view hierarchy to find the nearest enclosing UIScrollView.
     var enclosingScrollView: UIScrollView? {
-        if let scroll = superview as? UIScrollView {
-            return scroll
-        }
-        return superview?.enclosingScrollView
-    }
-}
+        var candidate: UIView? = self
 
-private extension View {
-    func glassCard(cornerRadius: CGFloat = 24) -> some View {
-        modifier(ViewerRootView.GlassCardModifier(cornerRadius: cornerRadius))
+        while let current = candidate {
+            if let scroll = current as? UIScrollView {
+                return scroll
+            }
+            candidate = current.superview
+        }
+
+        return nil
     }
 }
