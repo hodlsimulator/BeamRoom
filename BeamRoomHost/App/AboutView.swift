@@ -155,16 +155,18 @@ struct AboutView: View {
             Text("Quick start: one Host and one Viewer")
                 .font(.headline)
 
-            Text("A simple one‑to‑one setup between two iPhones in the same room.")
+            Text("Follow these steps to mirror one iPhone to another in the same room.")
                 .font(.body)
 
+            // Host steps
             VStack(alignment: .leading, spacing: 8) {
                 Text("On the Host iPhone")
                     .font(.subheadline.weight(.semibold))
 
                 step(1, "Open BeamRoom and choose the ‘Share’ tab.")
-                step(2, "Tap ‘Start sharing’. This starts hosting and opens the Screen Broadcast sheet.")
+                step(2, "Tap ‘Start sharing’. This turns this iPhone into the Host and opens the Screen Broadcast sheet.")
                 step(3, "In the sheet, pick ‘BeamRoom’ if needed, then tap ‘Start Broadcast’.")
+
                 Text("If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose ‘BeamRoom’, then tap Start Broadcast.")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.8))
@@ -174,17 +176,19 @@ struct AboutView: View {
             Divider()
                 .overlay(Color.white.opacity(0.25))
 
+            // Viewer steps – emphasise Nearby pairing
             VStack(alignment: .leading, spacing: 8) {
                 Text("On the Viewer iPhone")
                     .font(.subheadline.weight(.semibold))
 
                 step(1, "Open BeamRoom and choose the ‘Watch’ tab.")
-                step(2, "Wait for the Host name to appear. If there is only one Host, BeamRoom may connect automatically.")
-                step(3, "If it does not connect, tap the big ‘Connect to …’ button above.")
-                step(4, "If the Host does not appear or Wi‑Fi is unreliable, scroll to ‘Nearby pairing’ at the bottom, tap ‘Start nearby pairing’, then choose the Host iPhone from the list.")
+                step(2, "At the bottom, find the ‘Nearby pairing’ card and tap ‘Start nearby pairing’.")
+                step(3, "When the picker appears, choose the Host iPhone from the list.")
+                step(4, "Ask the person holding the Host to accept the pairing request on their screen.")
+                step(5, "Once the pairing shows as connected and the Host is broadcasting, the Host screen will appear on this iPhone.")
             }
 
-            Text("Once paired and broadcasting, everything on the Host screen is mirrored live to the Viewer.")
+            Text("Nearby pairing is the main way BeamRoom connects two iPhones that are close together. The devices discover each other first, then pairing links them so the Host can accept or decline Viewers.")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.8))
         }
@@ -195,18 +199,22 @@ struct AboutView: View {
 
     private var useCasesSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Ideas for using BeamRoom")
+            Text("Everyday ways to use BeamRoom")
                 .font(.headline)
 
-            // Helping and support
-            Text("Helping and support")
+            Text("BeamRoom is handy whenever one person is doing something on their iPhone and someone nearby wants to see clearly without holding the same device.")
+                .font(.body)
+
+            // Helping with phones
+            Text("Helping with phones")
                 .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Helping a family member use an app or change a setting while they just watch.")
-                bullet("Showing step‑by‑step how to do something in Settings without handing over a phone.")
-                bullet("Walking an older relative through banking or health apps while they see every tap.")
-                bullet("Doing a quick “how to install this app” walkthrough for someone sitting beside you.")
+                bullet("Helping a family member find something in Settings while they calmly copy what they see.")
+                bullet("Showing a parent how to use a banking or health app without taking their phone away.")
+                bullet("Talking someone through installing and setting up an app while they see each tap on their own phone.")
+                bullet("Letting a friend follow along with a how‑to guide while they practise on their own device.")
             }
 
             ExampleDiagram(
@@ -220,29 +228,40 @@ struct AboutView: View {
                 rightSubtitle: "Watching calmly"
             )
 
-            // Work, testing and design
-            Text("Work, testing and design")
+            // Around the house
+            Text("Around the house")
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Checking how an iOS build looks on a second device without passing phones around.")
-                bullet("Reviewing UI changes with someone at a desk or table while one phone runs the app.")
-                bullet("Comparing colours, fonts or layouts on two different screens at the same time.")
-                bullet("Walking through screenshots, mock‑ups or a prototype with a colleague beside you.")
+                bullet("Following a recipe: one phone stays on the counter showing the steps while the other phone is used to scroll and switch apps.")
+                bullet("Letting a child watch a video on a second iPhone while the main phone stays with an adult for controls.")
+                bullet("Going through a shopping list or online order together at the kitchen table without passing a single phone back and forth.")
+                bullet("Checking instructions for a gadget or flat‑pack furniture on one screen while another person does the building.")
             }
 
-            // Relaxed viewing and play
-            Text("Relaxed viewing and play")
+            // Planning and organising
+            Text("Planning and organising")
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Playtesting a game together on the sofa while one iPhone controls it.")
-                bullet("Practising a talk by mirroring slides from one iPhone to another.")
-                bullet("Sharing a quick sketch or diagram from a notes app during a chat.")
-                bullet("Leaving one phone charging or recording while its screen is mirrored to a second phone.")
-                bullet("Two friends following the same recipe or tutorial while one phone actually runs it.")
+                bullet("Planning a trip with someone: one person drives the maps and booking apps while the other follows along on a second screen.")
+                bullet("Choosing tickets, seats or times together, with both people able to clearly see the booking page.")
+                bullet("Looking at timetables or route options with a partner or friend before heading out.")
+                bullet("Going through a school timetable, homework tasks or messages with a child while they see exactly what is being tapped.")
+            }
+
+            // Fun and relaxed viewing
+            Text("Fun and relaxed")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 8) {
+                bullet("Scrolling through holiday photos or old videos while someone else watches from their own phone.")
+                bullet("Sharing a social feed or set of links while chatting on the sofa.")
+                bullet("Practising a short talk or demo and using the second phone as a private preview screen.")
+                bullet("Playtesting a game together where one person controls and the other just wants to watch comfortably.")
             }
         }
         .padding(18)
