@@ -18,13 +18,23 @@ extension ViewerRootView {
             if #available(iOS 16.4, *) {
                 ScrollView(showsIndicators: false) {
                     idleScrollContent
+                        // Tiny invisible helper that reaches into the underlying UIScrollView
+                        // and locks scrolling to a vertical feel only.
+                        .overlay(
+                            VerticalScrollConfigurator()
+                                .frame(width: 0, height: 0)
+                        )
                 }
-                // Lock bounce to vertical so the scroll does not wobble sideways.
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                // Keep vertical bounce based on content size; horizontal is handled by the configurator.
+                .scrollBounceBehavior(.basedOnSize)
             } else {
-                // Fallback for older iOS – still vertical-only content.
+                // Fallback for older iOS – still vertical-only content with a locked UIScrollView.
                 ScrollView(showsIndicators: false) {
                     idleScrollContent
+                        .overlay(
+                            VerticalScrollConfigurator()
+                                .frame(width: 0, height: 0)
+                        )
                 }
             }
         }
@@ -163,7 +173,7 @@ extension ViewerRootView {
             // Single Host – matches the auto‑connect behaviour.
             return "Found 1 nearby Host. Tap below or wait for automatic pairing."
         } else {
-            // Multiple Hosts – user chooses which one to join.
+            // Multiple Hosts – the viewer chooses which one to join.
             return "Found \(count) nearby Hosts. Choose one below to start watching."
         }
     }
@@ -174,7 +184,6 @@ extension ViewerRootView {
         if let selected = model.selectedHost {
             return selected
         }
-
         return model.browser.hosts.first
     }
 
@@ -303,103 +312,146 @@ extension ViewerRootView {
         .glassCard(cornerRadius: 18)
         .foregroundStyle(.white)
     }
-}
 
-// MARK: - Small reusable views for styling
+    // MARK: - Small reusable views for styling
 
-private struct StatusPill: View {
-    let icon: String
-    let label: String
+    private struct StatusPill: View {
+        let icon: String
+        let label: String
 
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .imageScale(.small)
+        var body: some View {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .imageScale(.small)
 
-            Text(label)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.16))
-        )
-    }
-}
-
-private struct StepChip: View {
-    let number: Int
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text("\(number)")
-                .font(.caption2.weight(.semibold))
-                .frame(width: 16, height: 16)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.9))
-                )
-                .foregroundColor(Color.accentColor)
-
-            Text(label.uppercased())
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.12))
-        )
-    }
-}
-
-private struct GlassCardModifier: ViewModifier {
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        content
+                Text(label)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .background(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.20),
-                                        Color.white.opacity(0.05)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.9),
-                                        Color.white.opacity(0.15)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.0
-                            )
-                    )
-                    .shadow(color: .black.opacity(0.45), radius: 16, x: 0, y: 8)
+                Capsule()
+                    .fill(Color.white.opacity(0.16))
             )
+        }
+    }
+
+    private struct StepChip: View {
+        let number: Int
+        let label: String
+
+        var body: some View {
+            HStack(spacing: 5) {
+                Text("\(number)")
+                    .font(.caption2.weight(.semibold))
+                    .frame(width: 16, height: 16)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.9))
+                    )
+                    .foregroundColor(Color.accentColor)
+
+                Text(label.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.12))
+            )
+        }
+    }
+
+    struct GlassCardModifier: ViewModifier {
+        let cornerRadius: CGFloat
+
+        func body(content: Content) -> some View {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .background(
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.20),
+                                            Color.white.opacity(0.05)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.9),
+                                            Color.white.opacity(0.15)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1.0
+                                )
+                        )
+                        .shadow(
+                            color: .black.opacity(0.45),
+                            radius: 16,
+                            x: 0,
+                            y: 8
+                        )
+                )
+        }
+    }
+
+    /// Configures the underlying UIScrollView used by the SwiftUI ScrollView
+    /// so that scrolling feels firmly locked to the vertical axis.
+    private struct VerticalScrollConfigurator: UIViewRepresentable {
+        func makeUIView(context: Context) -> UIView {
+            let view = UIView(frame: .zero)
+            DispatchQueue.main.async {
+                configure(using: view)
+            }
+            return view
+        }
+
+        func updateUIView(_ uiView: UIView, context: Context) {
+            DispatchQueue.main.async {
+                configure(using: uiView)
+            }
+        }
+
+        private func configure(using view: UIView) {
+            guard let scrollView = view.enclosingScrollView else { return }
+
+            scrollView.isDirectionalLockEnabled = true
+            scrollView.alwaysBounceHorizontal = false
+            scrollView.showsHorizontalScrollIndicator = false
+        }
+    }
+}
+
+// MARK: - Shared helpers
+
+private extension UIView {
+    /// Walks up the superview chain to find the nearest UIScrollView ancestor.
+    var enclosingScrollView: UIScrollView? {
+        if let scroll = superview as? UIScrollView {
+            return scroll
+        }
+        return superview?.enclosingScrollView
     }
 }
 
 private extension View {
     func glassCard(cornerRadius: CGFloat = 24) -> some View {
-        modifier(GlassCardModifier(cornerRadius: cornerRadius))
+        modifier(ViewerRootView.GlassCardModifier(cornerRadius: cornerRadius))
     }
 }
