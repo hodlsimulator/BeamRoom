@@ -12,17 +12,21 @@ struct AboutView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    headerSection
-                    overviewSection
-                    useCasesSection
-                    diagramsSection
-                    howItWorksSection
-                    privacySection
+            ZStack {
+                backgroundView
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        headerSection
+                        overviewSection
+                        useCasesSection
+                        acrossRoomSection
+                        howItWorksSection
+                        privacySection
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
             }
             .navigationTitle("About BeamRoom")
             .toolbar {
@@ -33,6 +37,71 @@ struct AboutView: View {
                 }
             }
         }
+        .toolbarColorScheme(.dark, for: .navigationBar)
+    }
+
+    // MARK: - Background
+
+    private var backgroundView: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.04, green: 0.05, blue: 0.12),
+                    Color(red: 0.01, green: 0.01, blue: 0.05)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            // Cool blue glow
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.6),
+                            Color.accentColor.opacity(0.0)
+                        ],
+                        center: .topLeading,
+                        startRadius: 10,
+                        endRadius: 260
+                    )
+                )
+                .blur(radius: 40)
+                .offset(x: -40, y: -80)
+
+            // Warm complementary glow
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.orange.opacity(0.45),
+                            Color.orange.opacity(0.0)
+                        ],
+                        center: .bottomTrailing,
+                        startRadius: 10,
+                        endRadius: 260
+                    )
+                )
+                .blur(radius: 50)
+                .offset(x: 80, y: 120)
+
+            // Soft diagonal streak
+            RoundedRectangle(cornerRadius: 200, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.12),
+                            Color.white.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .rotationEffect(.degrees(-18))
+                .blur(radius: 60)
+                .offset(x: 40, y: 40)
+        }
+        .ignoresSafeArea()
     }
 
     // MARK: - Sections
@@ -42,14 +111,17 @@ struct AboutView: View {
             Text("BeamRoom")
                 .font(.largeTitle.bold())
 
-            Text("Share your iPhone or iPad screen straight to another device nearby. No accounts, no cables.")
+            Text("Share your iPhone screen straight to another device nearby.\nNo accounts, no cables.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.85))
         }
+        .padding(20)
+        .hostGlassCard(cornerRadius: 30)
+        .foregroundStyle(.white)
     }
 
     private var overviewSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("What BeamRoom does")
                 .font(.headline)
 
@@ -61,7 +133,21 @@ struct AboutView: View {
                 """
             )
             .font(.body)
+
+            ExampleDiagram(
+                title: "One-to-one",
+                description: "A single Host mirrors its screen to one nearby Viewer. Good for help and quick demos.",
+                leftIcon: "iphone",
+                leftTitle: "Host iPhone",
+                leftSubtitle: "Sharing the screen",
+                rightIcon: "iphone",
+                rightTitle: "Viewer iPhone",
+                rightSubtitle: "Watching"
+            )
         }
+        .padding(18)
+        .hostGlassCard(cornerRadius: 26)
+        .foregroundStyle(.white)
     }
 
     private var useCasesSection: some View {
@@ -70,93 +156,60 @@ struct AboutView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Playtesting a game together on the sofa while one person controls it.")
+                bullet("Playtesting a game together on the sofa while one iPhone controls it.")
                 bullet("Helping a family member use an app or change a setting while they just watch.")
                 bullet("Checking how an iOS build looks on a second device without passing phones around.")
-                bullet("Practising a talk by mirroring an iPad to an iPhone across the room.")
-                bullet("Sharing a quick sketch or diagram from a tablet during a chat.")
-                bullet("Watching your own phone on another screen while it is on a stand across the room.")
-                bullet("Letting a child watch a video on an iPad while the phone doing the streaming stays with you.")
+                bullet("Practising a talk by mirroring slides from one iPhone to another across the room.")
+                bullet("Sharing a quick sketch or diagram from a notes app during a chat.")
+                bullet("Watching a phone on another screen while it is on a stand across the room.")
+                bullet("Letting a child watch a video on a second iPhone while the Host phone stays with you.")
                 bullet("Comparing colours, fonts or layouts on two different screens at the same time.")
-                bullet("Showing a step-by-step how-to to a friend in a café without handing over your phone.")
+                bullet("Showing a step-by-step how-to to a friend in a café without handing over a phone.")
                 bullet("Walking through screenshots, mock-ups or a prototype with someone sitting beside you.")
             }
+
+            ExampleDiagram(
+                title: "Coach and learner",
+                description: "One person taps through menus on their phone while the other watches and learns on a second device.",
+                leftIcon: "iphone",
+                leftTitle: "Coach",
+                leftSubtitle: "Tapping through steps",
+                rightIcon: "iphone",
+                rightTitle: "Learner",
+                rightSubtitle: "Watching calmly"
+            )
         }
+        .padding(18)
+        .hostGlassCard(cornerRadius: 26)
+        .foregroundStyle(.white)
     }
 
-    private var diagramsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Diagrams")
+    private var acrossRoomSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Across the room")
                 .font(.headline)
 
-            VStack(spacing: 16) {
-                ExampleDiagram(
-                    title: "One-to-one",
-                    description: "A single Host mirrors its screen to one nearby Viewer. Good for help and quick demos.",
-                    leftIcon: "iphone",
-                    leftTitle: "Host",
-                    leftSubtitle: "Sharing the screen",
-                    rightIcon: "iphone",
-                    rightTitle: "Viewer",
-                    rightSubtitle: "Watching"
-                )
+            Text(
+                """
+                BeamRoom works well when the Host phone is on a stand or dock and a Viewer holds another iPhone somewhere more comfortable.
+                """
+            )
+            .font(.body)
 
-                ExampleDiagram(
-                    title: "Around the table",
-                    description: "An iPad in the middle shares to a phone so someone can see text or drawings more clearly.",
-                    leftIcon: "ipad",
-                    leftTitle: "Host iPad",
-                    leftSubtitle: "Drawing or browsing",
-                    rightIcon: "iphone",
-                    rightTitle: "Viewer iPhone",
-                    rightSubtitle: "Close-up view"
-                )
-
-                ExampleDiagram(
-                    title: "Practice session",
-                    description: "A presenter rehearses a slide deck on an iPad while a Viewer in another spot follows along.",
-                    leftIcon: "ipad",
-                    leftTitle: "Presenter",
-                    leftSubtitle: "Slides on screen",
-                    rightIcon: "iphone",
-                    rightTitle: "Listener",
-                    rightSubtitle: "Following along"
-                )
-
-                ExampleDiagram(
-                    title: "Coach and learner",
-                    description: "One person taps through menus on their phone while the other watches and learns on a second device.",
-                    leftIcon: "iphone",
-                    leftTitle: "Coach",
-                    leftSubtitle: "Tapping through steps",
-                    rightIcon: "iphone",
-                    rightTitle: "Learner",
-                    rightSubtitle: "Watching calmly"
-                )
-
-                ExampleDiagram(
-                    title: "Parent and child",
-                    description: "A parent keeps the Host phone, but the child watches the mirrored screen on an iPad.",
-                    leftIcon: "iphone",
-                    leftTitle: "Parent",
-                    leftSubtitle: "Controls playback",
-                    rightIcon: "ipad",
-                    rightTitle: "Child",
-                    rightSubtitle: "Watches on iPad"
-                )
-
-                ExampleDiagram(
-                    title: "Desk and sofa",
-                    description: "A phone on a stand acts as the Host, sending the screen to a Viewer in a more comfortable spot.",
-                    leftIcon: "iphone",
-                    leftTitle: "Desk phone",
-                    leftSubtitle: "On a stand",
-                    rightIcon: "iphone",
-                    rightTitle: "Sofa phone",
-                    rightSubtitle: "Comfortable view"
-                )
-            }
+            ExampleDiagram(
+                title: "Desk and sofa",
+                description: "A phone on a stand acts as the Host, sending the screen to a Viewer in a more comfortable spot.",
+                leftIcon: "iphone",
+                leftTitle: "Desk phone",
+                leftSubtitle: "On a stand",
+                rightIcon: "iphone",
+                rightTitle: "Sofa phone",
+                rightSubtitle: "Comfortable view"
+            )
         }
+        .padding(18)
+        .hostGlassCard(cornerRadius: 26)
+        .foregroundStyle(.white)
     }
 
     private var howItWorksSection: some View {
@@ -166,7 +219,7 @@ struct AboutView: View {
 
             Text(
                 """
-                • The Share tab makes your device the Host.
+                • The Share tab makes the device the Host.
                 • The Watch tab looks for Hosts nearby and connects to one of them.
                 • Once paired, starting a Screen Broadcast sends live video from the Host to the Viewer.
 
@@ -175,6 +228,9 @@ struct AboutView: View {
             )
             .font(.body)
         }
+        .padding(18)
+        .hostGlassCard(cornerRadius: 26)
+        .foregroundStyle(.white)
     }
 
     private var privacySection: some View {
@@ -193,6 +249,9 @@ struct AboutView: View {
             )
             .font(.body)
         }
+        .padding(18)
+        .hostGlassCard(cornerRadius: 26)
+        .foregroundStyle(.white)
     }
 
     // MARK: - Helpers
@@ -211,11 +270,9 @@ struct AboutView: View {
 struct ExampleDiagram: View {
     let title: String
     let description: String
-
     let leftIcon: String
     let leftTitle: String
     let leftSubtitle: String
-
     let rightIcon: String
     let rightTitle: String
     let rightSubtitle: String
