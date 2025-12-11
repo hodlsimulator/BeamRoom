@@ -14,7 +14,7 @@ extension ViewerRootView {
     // MARK: - Idle state before any video arrives
 
     var idleStateView: some View {
-        ScrollView(showsIndicators: false) {
+        ViewerVerticalScrollView {
             VStack(spacing: 20) {
                 Spacer(minLength: 24)
 
@@ -285,6 +285,66 @@ extension ViewerRootView {
         .padding(14)
         .glassCard(cornerRadius: 18)
         .foregroundStyle(.white)
+    }
+}
+
+// MARK: - UIKit-backed scroll view to lock vertical scrolling
+
+/// A vertically scrolling container that:
+/// - Always bounces vertically
+/// - Never bounces horizontally
+/// - Uses directional locking so diagonal swipes stick to one axis
+private struct ViewerVerticalScrollView<Content: View>: UIViewRepresentable {
+
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(hostingController: UIHostingController(rootView: content))
+    }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.backgroundColor = .clear
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.alwaysBounceVertical = true
+        scrollView.alwaysBounceHorizontal = false
+        scrollView.isDirectionalLockEnabled = true
+        scrollView.bounces = true
+
+        let hosting = context.coordinator.hostingController
+        hosting.view.backgroundColor = .clear
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
+
+        scrollView.addSubview(hosting.view)
+
+        NSLayoutConstraint.activate([
+            hosting.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            hosting.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            // Critical: content width tracks the scroll view’s frame width so
+            // there is no horizontal overflow to bounce.
+            hosting.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
+        ])
+
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        context.coordinator.hostingController.rootView = content
+    }
+
+    final class Coordinator {
+        let hostingController: UIHostingController<Content>
+
+        init(hostingController: UIHostingController<Content>) {
+            self.hostingController = hostingController
+        }
     }
 }
 
