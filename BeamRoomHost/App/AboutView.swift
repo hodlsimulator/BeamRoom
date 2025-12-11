@@ -128,7 +128,6 @@ struct AboutView: View {
             Text(
                 """
                 BeamRoom takes the screen from one device (the Host) and shows it live on one or more other devices (the Viewers) in the same place.
-
                 It can work on normal home Wi‑Fi, on a personal hotspot, or even with no router at all, as long as Wi‑Fi is switched on for both devices.
                 """
             )
@@ -136,7 +135,7 @@ struct AboutView: View {
 
             ExampleDiagram(
                 title: "One-to-one",
-                description: "A single Host mirrors its screen to one nearby Viewer. Good for quick help and simple demos.",
+                description: "A single Host mirrors its screen to one nearby Viewer.\nGood for quick help and simple demos.",
                 leftIcon: "iphone",
                 leftTitle: "Host iPhone",
                 leftSubtitle: "Sharing the screen",
@@ -164,7 +163,7 @@ struct AboutView: View {
                     .font(.subheadline.weight(.semibold))
 
                 step(1, "Open BeamRoom and choose the ‘Share’ tab.")
-                step(2, "Tap ‘Start sharing’. This turns this iPhone into the Host and opens the Screen Broadcast sheet.")
+                step(2, "Tap ‘Start sharing’.\nThis turns this iPhone into the Host and opens the Screen Broadcast sheet.")
                 step(3, "In the sheet, pick ‘BeamRoom’ if needed, then tap ‘Start Broadcast’.")
 
                 Text("If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose ‘BeamRoom’, then tap Start Broadcast.")
@@ -205,7 +204,7 @@ struct AboutView: View {
                 UseCaseAccordion(
                     title: "Helping with a phone",
                     subtitle: "Showing where to tap",
-                    systemImage: "person.crop.circle.badge.questionmark",
+                    systemImage: "hand.tap",
                     points: [
                         "Explaining what to tap in an unfamiliar app while everyone looks at the same screen.",
                         "Showing how to reach a page in Settings from across a table or sofa.",
@@ -239,7 +238,7 @@ struct AboutView: View {
                 UseCaseAccordion(
                     title: "Planning something together",
                     subtitle: "Looking at the same information",
-                    systemImage: "rectangle.3.group",
+                    systemImage: "calendar.badge.clock",
                     points: [
                         "Reviewing a simple plan or schedule while one person scrolls.",
                         "Checking options such as times, prices or choices so everyone can see clearly.",
@@ -273,7 +272,7 @@ struct AboutView: View {
                 UseCaseAccordion(
                     title: "Travel and journeys",
                     subtitle: "Talking through where to go",
-                    systemImage: "map",
+                    systemImage: "mappin.and.ellipse",
                     points: [
                         "Showing a simple map while explaining where things are.",
                         "Checking a route to a place together while one person moves the map.",
@@ -281,8 +280,8 @@ struct AboutView: View {
                     ],
                     chips: [
                         UseCaseChip(systemImage: "mappin.and.ellipse", label: "Place"),
-                        UseCaseChip(systemImage: "arrow.triangle.turn.up.right.diamond", label: "Route"),
-                        UseCaseChip(systemImage: "tram.fill", label: "Transport")
+                        UseCaseChip(systemImage: "figure.walk", label: "Route"),
+                        UseCaseChip(systemImage: "car.fill", label: "Transport")
                     ]
                 )
 
@@ -307,7 +306,7 @@ struct AboutView: View {
                 UseCaseAccordion(
                     title: "Sharing things to watch",
                     subtitle: "Letting someone just sit back and view",
-                    systemImage: "sparkles.rectangle.stack",
+                    systemImage: "play.rectangle.on.rectangle",
                     points: [
                         "Showing photos or short videos to someone nearby on a second screen.",
                         "Letting someone watch a game or app from a comfortable seat while another person plays.",
@@ -332,8 +331,8 @@ struct AboutView: View {
                     ],
                     chips: [
                         UseCaseChip(systemImage: "gamecontroller", label: "Game"),
-                        UseCaseChip(systemImage: "puzzlepiece.extension", label: "Puzzle"),
-                        UseCaseChip(systemImage: "face.smiling", label: "Fun")
+                        UseCaseChip(systemImage: "person.2", label: "Together"),
+                        UseCaseChip(systemImage: "sparkles", label: "Fun")
                     ]
                 )
 
@@ -366,7 +365,7 @@ struct AboutView: View {
                     ],
                     chips: [
                         UseCaseChip(systemImage: "exclamationmark.triangle", label: "Alert"),
-                        UseCaseChip(systemImage: "bolt.badge.a", label: "Glitch"),
+                        UseCaseChip(systemImage: "hand.raised", label: "Help"),
                         UseCaseChip(systemImage: "wrench.and.screwdriver", label: "Fix")
                     ]
                 )
@@ -385,7 +384,8 @@ struct AboutView: View {
 
             Text(
                 """
-                BeamRoom is tuned for short‑range sharing between devices in the same place. It is meant for nearby, in‑person use, not long‑distance streaming over the internet.
+                BeamRoom is tuned for short‑range sharing between devices in the same place.
+                It is meant for nearby, in‑person use, not long‑distance streaming over the internet.
                 """
             )
             .font(.body)
@@ -419,7 +419,6 @@ struct AboutView: View {
             Text(
                 """
                 BeamRoom is built for nearby, in‑person use:
-
                 • No accounts.
                 • No remote servers.
                 • Screen data is sent only between the Host and Viewer devices.
