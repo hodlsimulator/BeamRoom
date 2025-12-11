@@ -19,9 +19,9 @@ struct AboutView: View {
                     VStack(spacing: 20) {
                         headerSection
                         overviewSection
+                        quickStartSection
                         useCasesSection
                         whereItWorksBestSection
-                        howItWorksSection
                         privacySection
                     }
                     .padding(.horizontal, 20)
@@ -129,7 +129,7 @@ struct AboutView: View {
                 """
                 BeamRoom takes the screen from one device (the Host) and shows it live on one or more other devices (the Viewers) in the same place.
 
-                It can work on normal home Wi-Fi, on a personal hotspot, or even with no router at all, as long as Wi-Fi is switched on for both devices.
+                It can work on normal home Wi‑Fi, on a personal hotspot, or even with no router at all, as long as Wi‑Fi is switched on for both devices.
                 """
             )
             .font(.body)
@@ -150,21 +150,63 @@ struct AboutView: View {
         .foregroundStyle(.white)
     }
 
-    private var useCasesSection: some View {
+    private var quickStartSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("Quick start: one Host and one Viewer")
+                .font(.headline)
+
+            Text("A simple one‑to‑one setup between two iPhones in the same room.")
+                .font(.body)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("On the Host iPhone")
+                    .font(.subheadline.weight(.semibold))
+
+                step(1, "Open BeamRoom and choose the ‘Share’ tab.")
+                step(2, "Tap ‘Start sharing’. This starts hosting and opens the Screen Broadcast sheet.")
+                step(3, "In the sheet, pick ‘BeamRoom’ if needed, then tap ‘Start Broadcast’.")
+                Text("If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose ‘BeamRoom’, then tap Start Broadcast.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 2)
+            }
+
+            Divider()
+                .overlay(Color.white.opacity(0.25))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("On the Viewer iPhone")
+                    .font(.subheadline.weight(.semibold))
+
+                step(1, "Open BeamRoom and choose the ‘Watch’ tab.")
+                step(2, "Wait for the Host name to appear. If there is only one Host, BeamRoom may connect automatically.")
+                step(3, "If it does not connect, tap the big ‘Connect to …’ button above.")
+                step(4, "If the Host does not appear or Wi‑Fi is unreliable, scroll to ‘Nearby pairing’ at the bottom, tap ‘Start nearby pairing’, then choose the Host iPhone from the list.")
+            }
+
+            Text("Once paired and broadcasting, everything on the Host screen is mirrored live to the Viewer.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.8))
+        }
+        .padding(18)
+        .hostGlassCard(cornerRadius: 26)
+        .foregroundStyle(.white)
+    }
+
+    private var useCasesSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
             Text("Ideas for using BeamRoom")
                 .font(.headline)
 
+            // Helping and support
+            Text("Helping and support")
+                .font(.subheadline.weight(.semibold))
+
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Playtesting a game together on the sofa while one iPhone controls it.")
                 bullet("Helping a family member use an app or change a setting while they just watch.")
-                bullet("Checking how an iOS build looks on a second device without passing phones around.")
-                bullet("Practising a talk by mirroring slides from one iPhone to another.")
-                bullet("Sharing a quick sketch or diagram from a notes app during a chat.")
-                bullet("Leaving one phone charging or recording while its screen is mirrored to a second phone.")
-                bullet("Comparing colours, fonts or layouts on two different screens at the same time.")
-                bullet("Showing a step-by-step how-to to a friend in a café without handing over a phone.")
-                bullet("Walking through screenshots, mock-ups or a prototype with someone sitting beside you.")
+                bullet("Showing step‑by‑step how to do something in Settings without handing over a phone.")
+                bullet("Walking an older relative through banking or health apps while they see every tap.")
+                bullet("Doing a quick “how to install this app” walkthrough for someone sitting beside you.")
             }
 
             ExampleDiagram(
@@ -177,6 +219,31 @@ struct AboutView: View {
                 rightTitle: "Learner",
                 rightSubtitle: "Watching calmly"
             )
+
+            // Work, testing and design
+            Text("Work, testing and design")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 8) {
+                bullet("Checking how an iOS build looks on a second device without passing phones around.")
+                bullet("Reviewing UI changes with someone at a desk or table while one phone runs the app.")
+                bullet("Comparing colours, fonts or layouts on two different screens at the same time.")
+                bullet("Walking through screenshots, mock‑ups or a prototype with a colleague beside you.")
+            }
+
+            // Relaxed viewing and play
+            Text("Relaxed viewing and play")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 8) {
+                bullet("Playtesting a game together on the sofa while one iPhone controls it.")
+                bullet("Practising a talk by mirroring slides from one iPhone to another.")
+                bullet("Sharing a quick sketch or diagram from a notes app during a chat.")
+                bullet("Leaving one phone charging or recording while its screen is mirrored to a second phone.")
+                bullet("Two friends following the same recipe or tutorial while one phone actually runs it.")
+            }
         }
         .padding(18)
         .hostGlassCard(cornerRadius: 26)
@@ -190,14 +257,14 @@ struct AboutView: View {
 
             Text(
                 """
-                BeamRoom is tuned for short-range sharing between devices in the same place. It is meant for nearby, in-person use, not long-distance streaming over the internet.
+                BeamRoom is tuned for short‑range sharing between devices in the same place. It is meant for nearby, in‑person use, not long‑distance streaming over the internet.
                 """
             )
             .font(.body)
 
             VStack(alignment: .leading, spacing: 6) {
-                bullet("Devices are in the same room or just next door.")
-                bullet("Both devices have Wi-Fi turned on, either on the same network or using a hotspot.")
+                bullet("Devices are in the same room, for example across a table or sofa.")
+                bullet("Both devices have Wi‑Fi turned on, either on the same network or using a hotspot.")
             }
 
             ExampleDiagram(
@@ -216,27 +283,6 @@ struct AboutView: View {
         .foregroundStyle(.white)
     }
 
-    private var howItWorksSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("How it works")
-                .font(.headline)
-
-            Text(
-                """
-                • The Share tab makes the device the Host.
-                • The Watch tab looks for Hosts nearby and connects to one of them.
-                • Once paired, starting a Screen Broadcast sends live video from the Host to the Viewer.
-
-                BeamRoom does not need a full home network. It works when both devices have Wi-Fi turned on and are close to each other. A normal router, a hotspot, or a direct wireless link between the devices all work.
-                """
-            )
-            .font(.body)
-        }
-        .padding(18)
-        .hostGlassCard(cornerRadius: 26)
-        .foregroundStyle(.white)
-    }
-
     private var privacySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Privacy")
@@ -244,7 +290,7 @@ struct AboutView: View {
 
             Text(
                 """
-                BeamRoom is built for nearby, in-person use:
+                BeamRoom is built for nearby, in‑person use:
 
                 • No accounts.
                 • No remote servers.
@@ -263,6 +309,16 @@ struct AboutView: View {
     private func bullet(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text("•")
+            Text(text)
+        }
+        .font(.body)
+    }
+
+    private func step(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(number).")
+                .font(.body.weight(.semibold))
+                .frame(width: 18, alignment: .trailing)
             Text(text)
         }
         .font(.body)
