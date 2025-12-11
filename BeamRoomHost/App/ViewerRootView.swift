@@ -110,7 +110,8 @@ final class ViewerViewModel: ObservableObject {
 
         guard case .paired(_, let maybePort) = client.status,
               let udpPort = maybePort,
-              let selected = selectedHost else {
+              let selected = selectedHost
+        else {
             return
         }
 
@@ -121,7 +122,8 @@ final class ViewerViewModel: ObservableObject {
 
         // 1) Prefer resolved IPv4/IPv6 endpoint.
         if let preferred = updated.preferredEndpoint,
-           case let .hostPort(host: host, port: _) = preferred {
+           case let .hostPort(host: host, port: _) = preferred
+        {
             media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
@@ -169,7 +171,8 @@ final class ViewerViewModel: ObservableObject {
         }
 
         guard let host = browser.hosts.first,
-              browser.hosts.count == 1 else {
+              browser.hosts.count == 1
+        else {
             return
         }
 
@@ -206,8 +209,14 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Watch")
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
-            .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .tabBar)
+            .toolbar(
+                model.media.lastImage == nil ? .automatic : .hidden,
+                for: .navigationBar
+            )
+            .toolbar(
+                model.media.lastImage == nil ? .automatic : .hidden,
+                for: .tabBar
+            )
             .toolbar {
                 if model.media.lastImage == nil {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -230,6 +239,8 @@ struct ViewerRootView: View {
         }
         // Same as Share tab: force a dark toolbar so the title is white on the dark background.
         .toolbarColorScheme(.dark, for: .navigationBar)
+        // New: tighten scroll behaviour so the Watch tab does not jiggle side‑to‑side.
+        .viewerScrollLock()
         .task {
             model.startDiscovery()
         }
@@ -251,7 +262,6 @@ struct ViewerRootView: View {
                 model.selectedHost = nil
                 model.hasAutoConnectedToPrimaryHost = false
             }
-
             model.autoConnectIfNeeded()
         }
         .onChange(of: model.client.status) { _, newStatus in
@@ -270,7 +280,6 @@ struct ViewerRootView: View {
             case .paired:
                 // Newly paired or re‑paired → ensure UDP media is running.
                 model.maybeStartMedia()
-
             case .failed, .idle:
                 // Lost contact with Host or explicitly disconnected.
                 // Tear down UDP so there is no frozen last frame and allow a
@@ -279,7 +288,6 @@ struct ViewerRootView: View {
                 model.media.disconnect()
                 model.selectedHost = nil
                 model.hasAutoConnectedToPrimaryHost = false
-
             default:
                 break
             }
@@ -330,5 +338,26 @@ private extension ViewerRootView {
         if UIApplication.shared.isIdleTimerDisabled != desired {
             UIApplication.shared.isIdleTimerDisabled = desired
         }
+    }
+}
+
+// MARK: - Scroll behaviour tweak
+
+/// Disables horizontal rubber‑banding on this screen when the content fits,
+/// so scrolling feels locked to up‑and‑down.
+private struct ViewerScrollLockModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    func viewerScrollLock() -> some View {
+        modifier(ViewerScrollLockModifier())
     }
 }
