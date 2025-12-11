@@ -45,6 +45,7 @@ final class ViewerViewModel: ObservableObject {
             // If nothing appears after a short delay, hint about permissions.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
+
                 if self.browser.hosts.isEmpty {
                     self.showPermHint = true
                 }
@@ -61,6 +62,7 @@ final class ViewerViewModel: ObservableObject {
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
+
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
 
         showPairSheet = true
@@ -73,6 +75,7 @@ final class ViewerViewModel: ObservableObject {
         switch client.status {
         case .idle, .failed:
             client.connect(to: host, code: code)
+
         default:
             BeamLog.warn(
                 "Pair tap ignored; client.status=\(String(describing: client.status))",
@@ -109,10 +112,9 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard
-            case .paired(_, let maybePort) = client.status,
-            let udpPort = maybePort,
-            let selected = selectedHost
+        guard case .paired(_, let maybePort) = client.status,
+              let udpPort = maybePort,
+              let selected = selectedHost
         else {
             return
         }
@@ -171,7 +173,11 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
+        guard let host = browser.hosts.first,
+              browser.hosts.count == 1
+        else {
+            return
+        }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -206,17 +212,7 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Watch")
-            // Large title that collapses to a small centred title when scrolling,
-            // matching the Share tab behaviour.
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar(
-                model.media.lastImage == nil ? .automatic : .hidden,
-                for: .navigationBar
-            )
-            .toolbar(
-                model.media.lastImage == nil ? .automatic : .hidden,
-                for: .tabBar
-            )
+            // Match HostRootView: let the system handle large/inline titles.
             .toolbar {
                 if model.media.lastImage == nil {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -237,11 +233,8 @@ struct ViewerRootView: View {
                 }
             }
         }
-        // Same as Share tab: force a dark toolbar so the title is white.
+        // Same as Share tab: keep navigation dark-styled so titles are white.
         .toolbarColorScheme(.dark, for: .navigationBar)
-        // Let the navigation bar use the system glass / blur, like the Share screen,
-        // by not overriding the toolbar background here.
-
         .task {
             model.startDiscovery()
         }
@@ -339,6 +332,7 @@ private extension ViewerRootView {
     /// Keeps the device awake while there is live video on screen.
     func updateIdleTimer(forHasVideo hasVideo: Bool) {
         let desired = hasVideo
+
         if UIApplication.shared.isIdleTimerDisabled != desired {
             UIApplication.shared.isIdleTimerDisabled = desired
         }
