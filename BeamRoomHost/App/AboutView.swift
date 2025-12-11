@@ -272,14 +272,14 @@ struct AboutView: View {
                 UseCaseAccordion(
                     title: "Travel and journeys",
                     subtitle: "Talking through where to go",
-                    systemImage: "mappin.and.ellipse",
+                    systemImage: "airplane",
                     points: [
                         "Showing a simple map while explaining where things are.",
                         "Checking a route to a place together while one person moves the map.",
                         "Looking at basic travel details such as stop names or addresses."
                     ],
                     chips: [
-                        UseCaseChip(systemImage: "mappin.and.ellipse", label: "Place"),
+                        UseCaseChip(systemImage: "airplane", label: "Trip"),
                         UseCaseChip(systemImage: "figure.walk", label: "Route"),
                         UseCaseChip(systemImage: "car.fill", label: "Transport")
                     ]
