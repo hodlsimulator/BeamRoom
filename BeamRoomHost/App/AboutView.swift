@@ -136,7 +136,7 @@ struct AboutView: View {
 
             ExampleDiagram(
                 title: "One-to-one",
-                description: "A single Host mirrors its screen to one nearby Viewer. Good for help and quick demos.",
+                description: "A single Host mirrors its screen to one nearby Viewer. Good for quick help and simple demos.",
                 leftIcon: "iphone",
                 leftTitle: "Host iPhone",
                 leftSubtitle: "Sharing the screen",
@@ -176,7 +176,7 @@ struct AboutView: View {
             Divider()
                 .overlay(Color.white.opacity(0.25))
 
-            // Viewer steps – emphasise Nearby pairing
+            // Viewer steps – Nearby pairing
             VStack(alignment: .leading, spacing: 8) {
                 Text("On the Viewer iPhone")
                     .font(.subheadline.weight(.semibold))
@@ -184,13 +184,8 @@ struct AboutView: View {
                 step(1, "Open BeamRoom and choose the ‘Watch’ tab.")
                 step(2, "At the bottom, find the ‘Nearby pairing’ card and tap ‘Start nearby pairing’.")
                 step(3, "When the picker appears, choose the Host iPhone from the list.")
-                step(4, "Ask the person holding the Host to accept the pairing request on their screen.")
-                step(5, "Once the pairing shows as connected and the Host is broadcasting, the Host screen will appear on this iPhone.")
+                step(4, "After a moment, the Host screen appears on this iPhone while the Host keeps control.")
             }
-
-            Text("Nearby pairing is the main way BeamRoom connects two iPhones that are close together. The devices discover each other first, then pairing links them so the Host can accept or decline Viewers.")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.8))
         }
         .padding(18)
         .hostGlassCard(cornerRadius: 26)
@@ -202,19 +197,18 @@ struct AboutView: View {
             Text("Everyday ways to use BeamRoom")
                 .font(.headline)
 
-            Text("BeamRoom is handy whenever one person is doing something on their iPhone and someone nearby wants to see clearly without holding the same device.")
+            Text("BeamRoom is useful whenever one person is doing something on their iPhone and someone nearby wants to follow along on a second screen.")
                 .font(.body)
 
-            // Helping with phones
-            Text("Helping with phones")
+            // Helping someone
+            Text("Helping someone")
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Helping a family member find something in Settings while they calmly copy what they see.")
-                bullet("Showing a parent how to use a banking or health app without taking their phone away.")
-                bullet("Talking someone through installing and setting up an app while they see each tap on their own phone.")
-                bullet("Letting a friend follow along with a how‑to guide while they practise on their own device.")
+                bullet("Watching what someone does on their phone from another phone so it is easier to explain where to tap.")
+                bullet("Showing which buttons to press in an unfamiliar app while both people can see the same screen clearly.")
+                bullet("Explaining a settings page or message that is hard to read by mirroring it to a closer phone.")
             }
 
             ExampleDiagram(
@@ -225,43 +219,29 @@ struct AboutView: View {
                 leftSubtitle: "Tapping through steps",
                 rightIcon: "iphone",
                 rightTitle: "Learner",
-                rightSubtitle: "Watching calmly"
+                rightSubtitle: "Watching"
             )
 
-            // Around the house
-            Text("Around the house")
+            // Planning together
+            Text("Planning together")
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Following a recipe: one phone stays on the counter showing the steps while the other phone is used to scroll and switch apps.")
-                bullet("Letting a child watch a video on a second iPhone while the main phone stays with an adult for controls.")
-                bullet("Going through a shopping list or online order together at the kitchen table without passing a single phone back and forth.")
-                bullet("Checking instructions for a gadget or flat‑pack furniture on one screen while another person does the building.")
+                bullet("Looking at plans, routes or times together while one person scrolls and taps.")
+                bullet("Choosing tickets, seats or options where everyone wants a clear view of the same screen.")
+                bullet("Going through a list, notes or tasks at a table without needing to pass one phone back and forth.")
             }
 
-            // Planning and organising
-            Text("Planning and organising")
+            // Sharing things
+            Text("Sharing things")
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Planning a trip with someone: one person drives the maps and booking apps while the other follows along on a second screen.")
-                bullet("Choosing tickets, seats or times together, with both people able to clearly see the booking page.")
-                bullet("Looking at timetables or route options with a partner or friend before heading out.")
-                bullet("Going through a school timetable, homework tasks or messages with a child while they see exactly what is being tapped.")
-            }
-
-            // Fun and relaxed viewing
-            Text("Fun and relaxed")
-                .font(.subheadline.weight(.semibold))
-                .padding(.top, 4)
-
-            VStack(alignment: .leading, spacing: 8) {
-                bullet("Scrolling through holiday photos or old videos while someone else watches from their own phone.")
-                bullet("Sharing a social feed or set of links while chatting on the sofa.")
-                bullet("Practising a short talk or demo and using the second phone as a private preview screen.")
-                bullet("Playtesting a game together where one person controls and the other just wants to watch comfortably.")
+                bullet("Showing photos or short videos to someone nearby on a second screen.")
+                bullet("Letting someone watch a game or app while another person plays on the original phone.")
+                bullet("Practising a short talk or demo with a second phone acting as a private preview screen.")
             }
         }
         .padding(18)
