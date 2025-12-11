@@ -1,8 +1,8 @@
 //
-// ViewerRootView+BottomBar.swift
-// BeamRoomHost
+//  ViewerRootView+BottomBar.swift
+//  BeamRoomHost
 //
-// Created by . . on 12/8/25.
+//  Created by . . on 12/8/25.
 //
 
 import SwiftUI
@@ -18,8 +18,10 @@ extension ViewerRootView {
             HStack {
                 HStack(spacing: 8) {
                     ViewerStepChip(number: 2, label: "Pair")
+
                     Image(systemName: "person.2.wave.2.fill")
                         .imageScale(.medium)
+
                     Text("Nearby pairing")
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
@@ -27,6 +29,7 @@ extension ViewerRootView {
                 }
 
                 Spacer()
+
                 connectionStatus
             }
 
@@ -42,7 +45,10 @@ extension ViewerRootView {
             // Inline Wi‑Fi Aware picker instead of a separate sheet.
             if model.showAwareSheet {
                 awarePickSheet()
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .transition(
+                        .opacity
+                        .combined(with: .move(edge: .bottom))
+                    )
             }
         }
         .padding(.horizontal, 16)
@@ -140,7 +146,7 @@ extension ViewerRootView {
 
                     Text("Looks for a Host right next to this device.")
                         .font(.caption)
-                        .foregroundStyle(Color.accentColor.opacity(0.9))
+                        .foregroundStyle(Color.white.opacity(0.9))
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
                 }
@@ -158,16 +164,21 @@ extension ViewerRootView {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.white,
-                                Color.white.opacity(0.95)
+                                Color.accentColor,
+                                Color.blue.opacity(0.9)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
             )
-            .foregroundColor(Color.accentColor)
-            .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 8)
+            .foregroundColor(.white)
+            .shadow(
+                color: Color.black.opacity(0.35),
+                radius: 18,
+                x: 0,
+                y: 8
+            )
         }
         .buttonStyle(.plain)
         .disabled(!canStartNearbyPairing)
@@ -182,24 +193,28 @@ extension ViewerRootView {
         switch model.client.status {
         case .idle:
             EmptyView()
+
         case .connecting(let hostName, _):
             Label("Connecting to \(hostName)…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+
         case .waitingAcceptance:
             Label("Waiting for Host…", systemImage: "hourglass")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+
         case .paired:
             Label("Connected", systemImage: "checkmark.circle.fill")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.green)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+
         case .failed:
             Label("Connection failed", systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote.weight(.semibold))

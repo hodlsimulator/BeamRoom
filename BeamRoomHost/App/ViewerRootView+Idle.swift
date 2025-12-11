@@ -14,11 +14,18 @@ extension ViewerRootView {
     // MARK: - Idle state before any video arrives
 
     var idleStateView: some View {
-        ScrollView(showsIndicators: false) {
-            idleScrollContent
-                // Attach the UIKit helper to the scroll view so it
-                // hard-locks horizontally while keeping vertical scroll.
-                .background(VerticalScrollConfigurator())
+        Group {
+            if #available(iOS 16.4, *) {
+                ScrollView(showsIndicators: false) {
+                    idleScrollContent
+                }
+                // Match the Share tab behaviour and prevent sideways wobble.
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    idleScrollContent
+                }
+            }
         }
     }
 
@@ -134,7 +141,6 @@ extension ViewerRootView {
 
     private var hostsStatusLabel: String {
         let count = model.browser.hosts.count
-
         switch count {
         case 0:
             return "Searching for Hosts"
@@ -399,76 +405,5 @@ struct GlassCardModifier: ViewModifier {
 extension View {
     func glassCard(cornerRadius: CGFloat = 24) -> some View {
         modifier(GlassCardModifier(cornerRadius: cornerRadius))
-    }
-}
-
-// MARK: - Scroll locking helper
-
-private struct VerticalScrollConfigurator: UIViewRepresentable {
-
-    final class Coordinator {
-        var observation: NSKeyValueObservation?
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-
-        // Defer configuration until the view is in the hierarchy,
-        // so enclosingScrollView can actually find the ScrollView.
-        DispatchQueue.main.async {
-            configure(using: view, coordinator: context.coordinator)
-        }
-
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        DispatchQueue.main.async {
-            configure(using: uiView, coordinator: context.coordinator)
-        }
-    }
-
-    private func configure(using view: UIView, coordinator: Coordinator) {
-        guard let scrollView = view.enclosingScrollView else { return }
-
-        // Match the Share tab feel but add a hard horizontal lock.
-        scrollView.isDirectionalLockEnabled = true
-        scrollView.alwaysBounceHorizontal = false
-        scrollView.showsHorizontalScrollIndicator = false
-
-        // Clamp any horizontal offset that might sneak through.
-        coordinator.observation?.invalidate()
-        coordinator.observation = scrollView.observe(
-            \.contentOffset,
-            options: [.new]
-        ) { scrollView, _ in
-            let offset = scrollView.contentOffset
-
-            // Only adjust if there’s meaningful horizontal movement.
-            if abs(offset.x) > 0.5 {
-                let locked = CGPoint(x: 0, y: offset.y)
-                scrollView.setContentOffset(locked, animated: false)
-            }
-        }
-    }
-}
-
-private extension UIView {
-    /// Walks up the view hierarchy to find the nearest enclosing UIScrollView.
-    var enclosingScrollView: UIScrollView? {
-        var candidate: UIView? = self
-
-        while let current = candidate {
-            if let scroll = current as? UIScrollView {
-                return scroll
-            }
-            candidate = current.superview
-        }
-
-        return nil
     }
 }

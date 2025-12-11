@@ -8,6 +8,7 @@
 import SwiftUI
 
 extension HostRootView {
+
     // MARK: - Main hero card (Step 1)
 
     var heroCard: some View {
@@ -69,7 +70,7 @@ extension HostRootView {
                 HStack(spacing: 10) {
                     Image(
                         systemName: model.broadcastOn
-                            ? "dot.radiowaves.left.and.right"
+                            ? "dot.radiowaves.left.and-right"
                             : "play.fill"
                     )
                     .imageScale(.large)
@@ -79,7 +80,7 @@ extension HostRootView {
                         .lineLimit(1)
                         .minimumScaleFactor(0.9)
                 }
-                .foregroundColor(Color.accentColor)
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(
@@ -87,15 +88,15 @@ extension HostRootView {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white,
-                                    Color.white.opacity(0.9)
+                                    Color.accentColor,
+                                    Color.blue.opacity(0.9)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .shadow(
-                            color: Color.accentColor.opacity(0.45),
+                            color: Color.accentColor.opacity(0.55),
                             radius: 22,
                             x: 0,
                             y: 10
@@ -164,7 +165,6 @@ extension HostRootView {
 
     private var viewerCountLabel: String {
         let count = model.sessions.count
-
         switch count {
         case 0:
             return "No viewers"
@@ -200,7 +200,6 @@ extension HostRootView {
         if !model.started {
             model.toggleServer()
         }
-
         broadcastController.startBroadcast()
     }
 }
