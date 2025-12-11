@@ -111,7 +111,7 @@ struct AboutView: View {
             Text("BeamRoom")
                 .font(.largeTitle.bold())
 
-            Text("Share your iPhone screen straight to another device nearby.\nNo accounts, no cables.")
+            Text("Share an iPhone screen straight to another device nearby.\nNo accounts, no cables.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.85))
         }
@@ -200,49 +200,41 @@ struct AboutView: View {
             Text("BeamRoom is useful whenever one person is doing something on their iPhone and someone nearby wants to follow along on a second screen.")
                 .font(.body)
 
-            // Helping someone
-            Text("Helping someone")
-                .font(.subheadline.weight(.semibold))
-                .padding(.top, 4)
+            VStack(spacing: 10) {
+                UseCaseAccordion(
+                    title: "Helping with a phone",
+                    subtitle: "Showing where to tap",
+                    systemImage: "person.crop.circle.badge.questionmark",
+                    points: [
+                        "Explaining what to tap in an unfamiliar app while everyone looks at the same screen.",
+                        "Showing how to reach a page in Settings from across a table or sofa.",
+                        "Talking through a message, email or web page that is easier to see on a second phone."
+                    ]
+                )
 
-            VStack(alignment: .leading, spacing: 8) {
-                bullet("Watching what someone does on their phone from another phone so it is easier to explain where to tap.")
-                bullet("Showing which buttons to press in an unfamiliar app while both people can see the same screen clearly.")
-                bullet("Explaining a settings page or message that is hard to read by mirroring it to a closer phone.")
+                UseCaseAccordion(
+                    title: "Planning something together",
+                    subtitle: "Looking at the same information",
+                    systemImage: "rectangle.3.group",
+                    points: [
+                        "Looking over plans or schedules together while one person scrolls.",
+                        "Checking options such as times, prices or choices so everyone can see clearly.",
+                        "Reviewing a list or notes with more than one person without passing a single phone around."
+                    ]
+                )
+
+                UseCaseAccordion(
+                    title: "Sharing things to watch",
+                    subtitle: "Letting someone just sit back and view",
+                    systemImage: "sparkles.rectangle.stack",
+                    points: [
+                        "Showing photos or short videos to someone nearby on a second screen.",
+                        "Letting someone watch a game or app from a more comfortable seat while another person plays.",
+                        "Using a second phone as a small preview screen while practising a talk or simple demo."
+                    ]
+                )
             }
-
-            ExampleDiagram(
-                title: "Coach and learner",
-                description: "One person taps through menus on their phone while the other watches and learns on a second device.",
-                leftIcon: "iphone",
-                leftTitle: "Coach",
-                leftSubtitle: "Tapping through steps",
-                rightIcon: "iphone",
-                rightTitle: "Learner",
-                rightSubtitle: "Watching"
-            )
-
-            // Planning together
-            Text("Planning together")
-                .font(.subheadline.weight(.semibold))
-                .padding(.top, 4)
-
-            VStack(alignment: .leading, spacing: 8) {
-                bullet("Looking at plans, routes or times together while one person scrolls and taps.")
-                bullet("Choosing tickets, seats or options where everyone wants a clear view of the same screen.")
-                bullet("Going through a list, notes or tasks at a table without needing to pass one phone back and forth.")
-            }
-
-            // Sharing things
-            Text("Sharing things")
-                .font(.subheadline.weight(.semibold))
-                .padding(.top, 4)
-
-            VStack(alignment: .leading, spacing: 8) {
-                bullet("Showing photos or short videos to someone nearby on a second screen.")
-                bullet("Letting someone watch a game or app while another person plays on the original phone.")
-                bullet("Practising a short talk or demo with a second phone acting as a private preview screen.")
-            }
+            .padding(.top, 4)
         }
         .padding(18)
         .hostGlassCard(cornerRadius: 26)
@@ -324,7 +316,7 @@ struct AboutView: View {
     }
 }
 
-// MARK: - Diagram components
+// MARK: - Diagram components (Host ↔ Viewer)
 
 struct ExampleDiagram: View {
     let title: String
@@ -395,5 +387,69 @@ struct DeviceBubble: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.accentColor.opacity(0.15))
         )
+    }
+}
+
+// MARK: - Use‑case accordions (collapsible examples)
+
+struct UseCaseAccordion: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let points: [String]
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 20, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(Color.accentColor.opacity(0.22))
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(points, id: \.self) { point in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("•")
+                            Text(point)
+                        }
+                        .font(.footnote)
+                    }
+                }
+                .padding(.top, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(12)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
