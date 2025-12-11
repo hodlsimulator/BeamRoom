@@ -209,6 +209,11 @@ struct AboutView: View {
                         "Explaining what to tap in an unfamiliar app while everyone looks at the same screen.",
                         "Showing how to reach a page in Settings from across a table or sofa.",
                         "Talking through a message, email or web page that is easier to see on a second phone."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "person", label: "Helper"),
+                        UseCaseChip(systemImage: "iphone", label: "Host"),
+                        UseCaseChip(systemImage: "eye", label: "Viewer")
                     ]
                 )
 
@@ -217,9 +222,30 @@ struct AboutView: View {
                     subtitle: "Looking at the same information",
                     systemImage: "rectangle.3.group",
                     points: [
-                        "Looking over plans or schedules together while one person scrolls.",
+                        "Reviewing a simple plan or schedule while one person scrolls.",
                         "Checking options such as times, prices or choices so everyone can see clearly.",
-                        "Reviewing a list or notes with more than one person without passing a single phone around."
+                        "Looking at a list or notes with more than one person without passing one phone around."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "calendar", label: "Plan"),
+                        UseCaseChip(systemImage: "list.bullet", label: "Details"),
+                        UseCaseChip(systemImage: "person.2", label: "Together")
+                    ]
+                )
+
+                UseCaseAccordion(
+                    title: "Shopping together",
+                    subtitle: "Choosing what to buy",
+                    systemImage: "cart",
+                    points: [
+                        "Comparing items in an online shop while sitting together.",
+                        "Looking at sizes, colours or details while one person controls the page.",
+                        "Checking a basket or price total together before ordering."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "cart", label: "Shop"),
+                        UseCaseChip(systemImage: "tag", label: "Choice"),
+                        UseCaseChip(systemImage: "creditcard", label: "Total")
                     ]
                 )
 
@@ -229,8 +255,13 @@ struct AboutView: View {
                     systemImage: "sparkles.rectangle.stack",
                     points: [
                         "Showing photos or short videos to someone nearby on a second screen.",
-                        "Letting someone watch a game or app from a more comfortable seat while another person plays.",
+                        "Letting someone watch a game or app from a comfortable seat while another person plays.",
                         "Using a second phone as a small preview screen while practising a talk or simple demo."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "photo.on.rectangle", label: "Photos"),
+                        UseCaseChip(systemImage: "gamecontroller", label: "Games"),
+                        UseCaseChip(systemImage: "play.rectangle", label: "Demo")
                     ]
                 )
             }
@@ -392,11 +423,55 @@ struct DeviceBubble: View {
 
 // MARK: - Use‑case accordions (collapsible examples)
 
+struct UseCaseChip: Identifiable, Hashable {
+    let id = UUID()
+    let systemImage: String
+    let label: String
+}
+
+struct UseCaseDiagram: View {
+    let chips: [UseCaseChip]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(chips) { chip in
+                VStack(spacing: 4) {
+                    Image(systemName: chip.systemImage)
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(6)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.12))
+                        )
+
+                    Text(chip.label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                )
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+}
+
 struct UseCaseAccordion: View {
     let title: String
     let subtitle: String
     let systemImage: String
     let points: [String]
+    let chips: [UseCaseChip]
 
     @State private var isExpanded = false
 
@@ -435,16 +510,20 @@ struct UseCaseAccordion: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(points, id: \.self) { point in
-                        HStack(alignment: .top, spacing: 6) {
-                            Text("•")
-                            Text(point)
+                VStack(alignment: .leading, spacing: 8) {
+                    UseCaseDiagram(chips: chips)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(points, id: \.self) { point in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("•")
+                                Text(point)
+                            }
+                            .font(.footnote)
                         }
-                        .font(.footnote)
                     }
                 }
-                .padding(.top, 2)
+                .padding(.top, 4)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
