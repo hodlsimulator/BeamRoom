@@ -1,8 +1,8 @@
 //
-// ViewerRootView+Idle.swift
-// BeamRoomHost
+//  ViewerRootView+Idle.swift
+//  BeamRoomHost
 //
-// Created by . . on 12/8/25.
+//  Created by . . on 12/8/25.
 //
 
 import SwiftUI
@@ -14,22 +14,38 @@ extension ViewerRootView {
     // MARK: - Idle state before any video arrives
 
     var idleStateView: some View {
-        ViewerVerticalScrollView {
-            VStack(spacing: 20) {
-                Spacer(minLength: 24)
-
-                heroCard
-
-                if model.showPermHint && model.browser.hosts.isEmpty {
-                    permissionHint
+        Group {
+            if #available(iOS 16.4, *) {
+                ScrollView(showsIndicators: false) {
+                    idleScrollContent
                 }
-
-                Spacer(minLength: 40)
+                // Lock bounce to vertical so the scroll does not wobble sideways.
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            } else {
+                // Fallback for older iOS – still vertical-only content.
+                ScrollView(showsIndicators: false) {
+                    idleScrollContent
+                }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 70) // space above pinned bottom controls
         }
+    }
+
+    /// The actual contents of the idle scroll view.
+    private var idleScrollContent: some View {
+        VStack(spacing: 20) {
+            Spacer(minLength: 24)
+
+            heroCard
+
+            if model.showPermHint && model.browser.hosts.isEmpty {
+                permissionHint
+            }
+
+            Spacer(minLength: 40)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 70) // space above pinned bottom controls
     }
 
     // MARK: - Main hero card (discovery + host list)
@@ -176,6 +192,7 @@ extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.8))
+
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -288,66 +305,6 @@ extension ViewerRootView {
     }
 }
 
-// MARK: - UIKit-backed scroll view to lock vertical scrolling
-
-/// A vertically scrolling container that:
-/// - Always bounces vertically
-/// - Never bounces horizontally
-/// - Uses directional locking so diagonal swipes stick to one axis
-private struct ViewerVerticalScrollView<Content: View>: UIViewRepresentable {
-
-    let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(hostingController: UIHostingController(rootView: content))
-    }
-
-    func makeUIView(context: Context) -> UIScrollView {
-        let scrollView = UIScrollView()
-        scrollView.backgroundColor = .clear
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.alwaysBounceVertical = true
-        scrollView.alwaysBounceHorizontal = false
-        scrollView.isDirectionalLockEnabled = true
-        scrollView.bounces = true
-
-        let hosting = context.coordinator.hostingController
-        hosting.view.backgroundColor = .clear
-        hosting.view.translatesAutoresizingMaskIntoConstraints = false
-
-        scrollView.addSubview(hosting.view)
-
-        NSLayoutConstraint.activate([
-            hosting.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            hosting.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            hosting.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            hosting.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            // Critical: content width tracks the scroll view’s frame width so
-            // there is no horizontal overflow to bounce.
-            hosting.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
-        ])
-
-        return scrollView
-    }
-
-    func updateUIView(_ scrollView: UIScrollView, context: Context) {
-        context.coordinator.hostingController.rootView = content
-    }
-
-    final class Coordinator {
-        let hostingController: UIHostingController<Content>
-
-        init(hostingController: UIHostingController<Content>) {
-            self.hostingController = hostingController
-        }
-    }
-}
-
 // MARK: - Small reusable views for styling
 
 private struct StatusPill: View {
@@ -358,6 +315,7 @@ private struct StatusPill: View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .imageScale(.small)
+
             Text(label)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
