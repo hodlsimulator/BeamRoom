@@ -61,7 +61,6 @@ final class ViewerViewModel: ObservableObject {
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
-
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
 
         showPairSheet = true
@@ -110,9 +109,10 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard case .paired(_, let maybePort) = client.status,
-              let udpPort = maybePort,
-              let selected = selectedHost
+        guard
+            case .paired(_, let maybePort) = client.status,
+            let udpPort = maybePort,
+            let selected = selectedHost
         else {
             return
         }
@@ -124,8 +124,7 @@ final class ViewerViewModel: ObservableObject {
 
         // 1) Prefer resolved IPv4/IPv6 endpoint.
         if let preferred = updated.preferredEndpoint,
-           case let .hostPort(host: host, port: _) = preferred
-        {
+           case let .hostPort(host: host, port: _) = preferred {
             media.connect(toHost: host, port: udpPort)
             media.armAutoReconnect()
             return
@@ -172,11 +171,7 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first,
-              browser.hosts.count == 1
-        else {
-            return
-        }
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
@@ -211,8 +206,9 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Watch")
-            // Keep the small "Watch" title always visible in the nav bar.
-            .navigationBarTitleDisplayMode(.inline)
+            // Large title that collapses to a small centred title when scrolling,
+            // matching the Share tab behaviour.
+            .navigationBarTitleDisplayMode(.large)
             .toolbar(
                 model.media.lastImage == nil ? .automatic : .hidden,
                 for: .navigationBar
@@ -243,9 +239,9 @@ struct ViewerRootView: View {
         }
         // Same as Share tab: force a dark toolbar so the title is white.
         .toolbarColorScheme(.dark, for: .navigationBar)
-        // Make the Watch nav bar use a translucent glass background, like iOS 16.
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // Let the navigation bar use the system glass / blur, like the Share screen,
+        // by not overriding the toolbar background here.
+
         .task {
             model.startDiscovery()
         }
@@ -267,6 +263,7 @@ struct ViewerRootView: View {
                 model.selectedHost = nil
                 model.hasAutoConnectedToPrimaryHost = false
             }
+
             model.autoConnectIfNeeded()
         }
         .onChange(of: model.client.status) { _, newStatus in
