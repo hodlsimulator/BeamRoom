@@ -20,7 +20,7 @@ struct AboutView: View {
                         headerSection
                         overviewSection
                         useCasesSection
-                        acrossRoomSection
+                        whereItWorksBestSection
                         howItWorksSection
                         privacySection
                     }
@@ -159,10 +159,9 @@ struct AboutView: View {
                 bullet("Playtesting a game together on the sofa while one iPhone controls it.")
                 bullet("Helping a family member use an app or change a setting while they just watch.")
                 bullet("Checking how an iOS build looks on a second device without passing phones around.")
-                bullet("Practising a talk by mirroring slides from one iPhone to another across the room.")
+                bullet("Practising a talk by mirroring slides from one iPhone to another.")
                 bullet("Sharing a quick sketch or diagram from a notes app during a chat.")
-                bullet("Watching a phone on another screen while it is on a stand across the room.")
-                bullet("Letting a child watch a video on a second iPhone while the Host phone stays with you.")
+                bullet("Leaving one phone charging or recording while its screen is mirrored to a second phone.")
                 bullet("Comparing colours, fonts or layouts on two different screens at the same time.")
                 bullet("Showing a step-by-step how-to to a friend in a café without handing over a phone.")
                 bullet("Walking through screenshots, mock-ups or a prototype with someone sitting beside you.")
@@ -184,26 +183,31 @@ struct AboutView: View {
         .foregroundStyle(.white)
     }
 
-    private var acrossRoomSection: some View {
+    private var whereItWorksBestSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Across the room")
+            Text("Where it works best")
                 .font(.headline)
 
             Text(
                 """
-                BeamRoom works well when the Host phone is on a stand or dock and a Viewer holds another iPhone somewhere more comfortable.
+                BeamRoom is tuned for short-range sharing between devices in the same place. It is meant for nearby, in-person use, not long-distance streaming over the internet.
                 """
             )
             .font(.body)
 
+            VStack(alignment: .leading, spacing: 6) {
+                bullet("Devices are in the same room or just next door.")
+                bullet("Both devices have Wi-Fi turned on, either on the same network or using a hotspot.")
+            }
+
             ExampleDiagram(
-                title: "Desk and sofa",
-                description: "A phone on a stand acts as the Host, sending the screen to a Viewer in a more comfortable spot.",
+                title: "At the table",
+                description: "Two phones on the same table: one shares the screen while the other follows along.",
                 leftIcon: "iphone",
-                leftTitle: "Desk phone",
-                leftSubtitle: "On a stand",
+                leftTitle: "Host",
+                leftSubtitle: "Screen being shared",
                 rightIcon: "iphone",
-                rightTitle: "Sofa phone",
+                rightTitle: "Viewer",
                 rightSubtitle: "Comfortable view"
             )
         }
