@@ -204,7 +204,7 @@ struct AboutView: View {
                 UseCaseAccordion(
                     title: "Helping with a phone",
                     subtitle: "Showing where to tap",
-                    systemImage: "hand.tap",
+                    systemImage: "person.crop.circle.badge.questionmark",
                     points: [
                         "Explaining what to tap in an unfamiliar app while everyone looks at the same screen.",
                         "Showing how to reach a page in Settings from across a table or sofa.",
