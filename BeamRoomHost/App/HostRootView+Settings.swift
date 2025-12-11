@@ -1,9 +1,8 @@
 //
-//  HostRootView+Settings.swift
-//  BeamRoomHost
+// HostRootView+Settings.swift
+// BeamRoomHost
 //
-//  Created by . . on 12/8/25.
-//
+// Created by . . on 12/8/25.
 
 import SwiftUI
 
@@ -13,7 +12,6 @@ extension HostRootView {
 
     var hostSettingsCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-
             // Header: Advanced host settings + current hosting state
             HStack {
                 HStack(spacing: 8) {
@@ -47,10 +45,17 @@ extension HostRootView {
                 )
             }
 
+            // Hosting status summary (sessions + broadcast)
+            hostStatusSummary
+
             // Service / device name shown to Viewers
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Device name for Viewers")
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                Text("Shown on nearby devices when picking a Host. Defaults to the device name in Settings, but can be customised here.")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
 
                 TextField("Device name", text: $model.serviceName)
@@ -79,14 +84,24 @@ extension HostRootView {
             Button {
                 model.toggleServer()
             } label: {
-                Label {
-                    Text(model.started ? "Turn off hosting" : "Turn on hosting (no broadcast)")
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.9)
-                } icon: {
+                HStack(spacing: 12) {
                     Image(systemName: model.started ? "stop.circle.fill" : "play.circle")
+                        .font(.title3)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.started ? "Turn off hosting" : "Turn on hosting")
+                            .font(.subheadline.weight(.semibold))
+
+                        Text("Keeps this device visible to nearby Viewers even before the Screen Broadcast is started.")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.9)
+                    }
+
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.borderedProminent)
             .tint(Color.white.opacity(0.18))
@@ -94,7 +109,7 @@ extension HostRootView {
             // Low-level diagnostics – kept for DEBUG builds only
             #if DEBUG
             HStack(spacing: 6) {
-                Image(systemName: "dot.radiowaves.left.and.right")
+                Image(systemName: "dot.radiowaves.left.and-right")
                     .imageScale(.small)
 
                 if let peer = model.udpPeer {
@@ -110,5 +125,46 @@ extension HostRootView {
         .padding(18)
         .hostGlassCard(cornerRadius: 22)
         .foregroundStyle(.white)
+    }
+
+    private var hostStatusSummary: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if model.started {
+                Text(hostStatusLine)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.9))
+
+                if model.broadcastOn {
+                    Text("Screen Broadcast is on. Connected Viewers currently see the screen.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.75))
+                } else {
+                    Text("Screen Broadcast is off. Connected Viewers will see the screen once broadcasting starts.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+            } else {
+                Text("Hosting is currently off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Turn hosting on here to let nearby Viewers find this device before starting the Screen Broadcast.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var hostStatusLine: String {
+        let count = model.sessions.count
+
+        switch count {
+        case 0:
+            return "Hosting is on. No Viewers connected yet."
+        case 1:
+            return "Hosting is on. 1 Viewer connected."
+        default:
+            return "Hosting is on. \(count) Viewers connected."
+        }
     }
 }

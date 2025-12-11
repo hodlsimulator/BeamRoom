@@ -1,9 +1,8 @@
 //
-//  ViewerRootView+Idle.swift
-//  BeamRoomHost
+// ViewerRootView+Idle.swift
+// BeamRoomHost
 //
-//  Created by . . on 12/8/25.
-//
+// Created by . . on 12/8/25.
 
 import SwiftUI
 import UIKit
@@ -14,18 +13,8 @@ extension ViewerRootView {
     // MARK: - Idle state before any video arrives
 
     var idleStateView: some View {
-        Group {
-            if #available(iOS 16.4, *) {
-                ScrollView(showsIndicators: false) {
-                    idleScrollContent
-                }
-                // Match the Share tab behaviour and prevent sideways wobble.
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            } else {
-                ScrollView(showsIndicators: false) {
-                    idleScrollContent
-                }
-            }
+        ScrollView(showsIndicators: false) {
+            idleScrollContent
         }
     }
 
@@ -42,8 +31,8 @@ extension ViewerRootView {
 
             Spacer(minLength: 40)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
+        .padding(.horizontal)
+        .padding(.top, 20)
         .padding(.bottom, 70) // space above pinned bottom controls
     }
 
@@ -141,6 +130,7 @@ extension ViewerRootView {
 
     private var hostsStatusLabel: String {
         let count = model.browser.hosts.count
+
         switch count {
         case 0:
             return "Searching for Hosts"
@@ -220,9 +210,11 @@ extension ViewerRootView {
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
 
-            Text("As soon as a Host is found it appears here and connects automatically.\nIf nothing shows up, tap Start nearby pairing below.")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.75))
+            Text(
+                "As soon as a Host is found it appears here and connects automatically.\nIf nothing shows up, tap Start nearby pairing below."
+            )
+            .font(.footnote)
+            .foregroundStyle(.white.opacity(0.75))
         }
     }
 
