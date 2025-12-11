@@ -54,7 +54,7 @@ extension HostRootView {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
 
-                Text("Shown on nearby devices when picking a Host. Defaults to the device name in Settings, but can be customised here.")
+                Text("Shown to nearby Viewers when picking a Host. Starts as a simple name like \"iPhone\", but can be customised here.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
