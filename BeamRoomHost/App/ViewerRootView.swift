@@ -45,7 +45,6 @@ final class ViewerViewModel: ObservableObject {
             // If nothing appears after a short delay, hint about permissions.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-
                 if self.browser.hosts.isEmpty {
                     self.showPermHint = true
                 }
@@ -62,7 +61,6 @@ final class ViewerViewModel: ObservableObject {
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
-
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
 
         showPairSheet = true
@@ -70,12 +68,13 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func pair() {
-        guard let host = selectedHost else { return }
+        guard let host = selectedHost else {
+            return
+        }
 
         switch client.status {
         case .idle, .failed:
             client.connect(to: host, code: code)
-
         default:
             BeamLog.warn(
                 "Pair tap ignored; client.status=\(String(describing: client.status))",
@@ -112,9 +111,10 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard case .paired(_, let maybePort) = client.status,
-              let udpPort = maybePort,
-              let selected = selectedHost
+        guard
+            case .paired(_, let maybePort) = client.status,
+            let udpPort = maybePort,
+            let selected = selectedHost
         else {
             return
         }
@@ -173,16 +173,11 @@ final class ViewerViewModel: ObservableObject {
             return
         }
 
-        guard let host = browser.hosts.first,
-              browser.hosts.count == 1
-        else {
-            return
-        }
+        guard let host = browser.hosts.first, browser.hosts.count == 1 else { return }
 
         hasAutoConnectedToPrimaryHost = true
         selectedHost = host
         code = BeamControlClient.randomCode()
-
         BeamLog.info("Auto-selected host \(host.name)", tag: "viewer")
 
         // Silent auto‑pair – no explicit Pair sheet tap needed.
@@ -211,8 +206,7 @@ struct ViewerRootView: View {
                     idleStateView
                 }
             }
-            .navigationTitle("Watch")
-            // Match HostRootView: let the system handle large/inline titles.
+            .navigationTitle("Watch") // Match HostRootView: let the system handle large/inline titles.
             .toolbar {
                 if model.media.lastImage == nil {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -233,8 +227,13 @@ struct ViewerRootView: View {
                 }
             }
         }
+        // NEW: while actively watching, hide nav + tab bars so only the close "X" is tappable.
+        .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
+        .toolbar(model.media.lastImage == nil ? .visible : .hidden, for: .tabBar)
+
         // Same as Share tab: keep navigation dark-styled so titles are white.
         .toolbarColorScheme(.dark, for: .navigationBar)
+
         .task {
             model.startDiscovery()
         }
@@ -256,7 +255,6 @@ struct ViewerRootView: View {
                 model.selectedHost = nil
                 model.hasAutoConnectedToPrimaryHost = false
             }
-
             model.autoConnectIfNeeded()
         }
         .onChange(of: model.client.status) { _, newStatus in
@@ -332,7 +330,6 @@ private extension ViewerRootView {
     /// Keeps the device awake while there is live video on screen.
     func updateIdleTimer(forHasVideo hasVideo: Bool) {
         let desired = hasVideo
-
         if UIApplication.shared.isIdleTimerDisabled != desired {
             UIApplication.shared.isIdleTimerDisabled = desired
         }
