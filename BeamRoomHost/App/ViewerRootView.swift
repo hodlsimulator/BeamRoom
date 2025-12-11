@@ -61,7 +61,9 @@ final class ViewerViewModel: ObservableObject {
     func pick(_ host: DiscoveredHost) {
         selectedHost = host
         code = BeamControlClient.randomCode()
+
         BeamLog.info("UI picked host \(host.name)", tag: "viewer")
+
         showPairSheet = true
         pair()
     }
@@ -209,6 +211,8 @@ struct ViewerRootView: View {
                 }
             }
             .navigationTitle("Watch")
+            // Keep the small "Watch" title always visible in the nav bar.
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar(
                 model.media.lastImage == nil ? .automatic : .hidden,
                 for: .navigationBar
@@ -237,10 +241,11 @@ struct ViewerRootView: View {
                 }
             }
         }
-        // Same as Share tab: force a dark toolbar so the title is white on the dark background.
+        // Same as Share tab: force a dark toolbar so the title is white.
         .toolbarColorScheme(.dark, for: .navigationBar)
-        // New: tighten scroll behaviour so the Watch tab does not jiggle side‑to‑side.
-        .viewerScrollLock()
+        // Make the Watch nav bar use a translucent glass background, like iOS 16.
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task {
             model.startDiscovery()
         }
@@ -280,6 +285,7 @@ struct ViewerRootView: View {
             case .paired:
                 // Newly paired or re‑paired → ensure UDP media is running.
                 model.maybeStartMedia()
+
             case .failed, .idle:
                 // Lost contact with Host or explicitly disconnected.
                 // Tear down UDP so there is no frozen last frame and allow a
@@ -288,6 +294,7 @@ struct ViewerRootView: View {
                 model.media.disconnect()
                 model.selectedHost = nil
                 model.hasAutoConnectedToPrimaryHost = false
+
             default:
                 break
             }
@@ -338,26 +345,5 @@ private extension ViewerRootView {
         if UIApplication.shared.isIdleTimerDisabled != desired {
             UIApplication.shared.isIdleTimerDisabled = desired
         }
-    }
-}
-
-// MARK: - Scroll behaviour tweak
-
-/// Disables horizontal rubber‑banding on this screen when the content fits,
-/// so scrolling feels locked to up‑and‑down.
-private struct ViewerScrollLockModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) {
-            content.scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        } else {
-            content
-        }
-    }
-}
-
-private extension View {
-    func viewerScrollLock() -> some View {
-        modifier(ViewerScrollLockModifier())
     }
 }
