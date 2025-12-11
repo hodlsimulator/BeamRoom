@@ -1,8 +1,8 @@
 //
-//  ViewerRootView+Idle.swift
-//  BeamRoomHost
+// ViewerRootView+Idle.swift
+// BeamRoomHost
 //
-//  Created by . . on 12/8/25.
+// Created by . . on 12/8/25.
 //
 
 import SwiftUI
@@ -20,24 +20,6 @@ extension ViewerRootView {
 
                 heroCard
 
-                if model.browser.hosts.isEmpty {
-                    discoveringView
-                } else {
-                    primaryConnectButton()
-
-                    if model.browser.hosts.count > 1 {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Other nearby Hosts")
-                                .font(.footnote.weight(.medium))
-                                .foregroundStyle(.white.opacity(0.75))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-
-                            hostList
-                        }
-                    }
-                }
-
                 if model.showPermHint && model.browser.hosts.isEmpty {
                     permissionHint
                 }
@@ -50,17 +32,18 @@ extension ViewerRootView {
         }
     }
 
-    // MARK: - Hero card
+    // MARK: - Main hero card (discovery + host list)
 
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // Header row – title + icon
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
-                        StepChip(number: 1, label: "Join")
+                        StepChip(number: 1, label: "Watch")
                     }
 
-                    Text("Join a screen")
+                    Text("Watch a nearby screen")
                         .font(.title2.weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -101,17 +84,44 @@ extension ViewerRootView {
                     )
             }
 
-            HStack(spacing: 8) {
-                StatusPill(
-                    icon: "dot.radiowaves.left.and.right",
-                    label: hostsStatusLabel
-                )
+            // Discovery + host selection area
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    StatusPill(
+                        icon: "dot.radiowaves.left.and.right",
+                        label: hostsStatusLabel
+                    )
+
+                    if model.browser.hosts.isEmpty {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
+                .font(.caption2)
+
+                if model.browser.hosts.isEmpty {
+                    discoveringView
+                } else {
+                    primaryConnectButton()
+
+                    if model.browser.hosts.count > 1 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Other nearby Hosts")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+
+                            hostList
+                        }
+                    }
+                }
             }
-            .font(.caption2)
         }
         .padding(20)
         .glassCard(cornerRadius: 30)
         .foregroundStyle(.white)
+        .animation(.easeInOut(duration: 0.2), value: model.browser.hosts)
     }
 
     private var hostsStatusLabel: String {
@@ -132,13 +142,13 @@ extension ViewerRootView {
 
         if count == 0 {
             // No Hosts discovered yet – explain the simple flow.
-            return "When a device starts sharing from the Share tab, it appears below and BeamRoom connects automatically."
+            return "Open BeamRoom on another device, choose Share, and it will appear here automatically."
         } else if count == 1 {
             // Single Host – matches the auto‑connect behaviour.
-            return "Found 1 nearby Host below.\nBeamRoom will connect automatically."
+            return "Found 1 nearby Host. Tap below or wait for automatic pairing."
         } else {
             // Multiple Hosts – user chooses which one to join.
-            return "Found \(count) nearby Hosts below.\nChoose one to start watching."
+            return "Found \(count) nearby Hosts. Choose one below to start watching."
         }
     }
 
@@ -148,6 +158,7 @@ extension ViewerRootView {
         if let selected = model.selectedHost {
             return selected
         }
+
         return model.browser.hosts.first
     }
 
@@ -165,7 +176,6 @@ extension ViewerRootView {
                         Text("Connect to")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.8))
-
                         Text(host.name)
                             .font(.headline)
                             .lineLimit(1)
@@ -178,33 +188,28 @@ extension ViewerRootView {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.12))
+                )
             }
             .buttonStyle(.plain)
-            .glassCard(cornerRadius: 24)
         }
     }
 
     @ViewBuilder
     var discoveringView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .tint(.white)
-
-                Text("Looking for nearby Hosts on this network…")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.9))
-            }
-
-            Text("Once a Host is found, it appears above and BeamRoom connects automatically.")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("BeamRoom is searching on this network for devices sharing from the Share tab.")
                 .font(.footnote)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(.white.opacity(0.9))
+
+            Text("As soon as a Host is found it appears here and connects automatically. If nothing shows up, tap Start nearby pairing below.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.75))
         }
-        .padding(16)
-        .glassCard(cornerRadius: 22)
-        .foregroundStyle(.white)
     }
 
     @ViewBuilder
@@ -237,9 +242,12 @@ extension ViewerRootView {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
                 }
                 .buttonStyle(.plain)
-                .glassCard(cornerRadius: 18)
             }
         }
     }
@@ -290,7 +298,6 @@ private struct StatusPill: View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .imageScale(.small)
-
             Text(label)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
