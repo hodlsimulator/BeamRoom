@@ -201,6 +201,7 @@ struct AboutView: View {
                 .font(.body)
 
             VStack(spacing: 10) {
+                // 1. Helping with a phone
                 UseCaseAccordion(
                     title: "Helping with a phone",
                     subtitle: "Showing where to tap",
@@ -217,6 +218,24 @@ struct AboutView: View {
                     ]
                 )
 
+                // 2. Family admin
+                UseCaseAccordion(
+                    title: "Family admin",
+                    subtitle: "Keeping everyone on the same page",
+                    systemImage: "person.3",
+                    points: [
+                        "Looking at school or club messages together on a clear screen.",
+                        "Checking dates for family events or visits while talking them through.",
+                        "Reviewing simple forms or documents before they are sent."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "calendar", label: "Dates"),
+                        UseCaseChip(systemImage: "envelope", label: "Messages"),
+                        UseCaseChip(systemImage: "house", label: "Home")
+                    ]
+                )
+
+                // 3. Planning something together
                 UseCaseAccordion(
                     title: "Planning something together",
                     subtitle: "Looking at the same information",
@@ -227,12 +246,13 @@ struct AboutView: View {
                         "Looking at a list or notes with more than one person without passing one phone around."
                     ],
                     chips: [
-                        UseCaseChip(systemImage: "calendar", label: "Plan"),
-                        UseCaseChip(systemImage: "list.bullet", label: "Details"),
+                        UseCaseChip(systemImage: "calendar.badge.clock", label: "Plan"),
+                        UseCaseChip(systemImage: "list.bullet", label: "List"),
                         UseCaseChip(systemImage: "person.2", label: "Together")
                     ]
                 )
 
+                // 4. Shopping together
                 UseCaseAccordion(
                     title: "Shopping together",
                     subtitle: "Choosing what to buy",
@@ -244,11 +264,46 @@ struct AboutView: View {
                     ],
                     chips: [
                         UseCaseChip(systemImage: "cart", label: "Shop"),
-                        UseCaseChip(systemImage: "tag", label: "Choice"),
+                        UseCaseChip(systemImage: "tag", label: "Choices"),
                         UseCaseChip(systemImage: "creditcard", label: "Total")
                     ]
                 )
 
+                // 5. Travel and journeys
+                UseCaseAccordion(
+                    title: "Travel and journeys",
+                    subtitle: "Talking through where to go",
+                    systemImage: "map",
+                    points: [
+                        "Showing a simple map while explaining where things are.",
+                        "Checking a route to a place together while one person moves the map.",
+                        "Looking at basic travel details such as stop names or addresses."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "mappin.and.ellipse", label: "Place"),
+                        UseCaseChip(systemImage: "arrow.triangle.turn.up.right.diamond", label: "Route"),
+                        UseCaseChip(systemImage: "tram.fill", label: "Transport")
+                    ]
+                )
+
+                // 6. Learning and teaching
+                UseCaseAccordion(
+                    title: "Learning and teaching",
+                    subtitle: "Explaining how something works",
+                    systemImage: "graduationcap",
+                    points: [
+                        "Showing a short tutorial or guide while talking through it.",
+                        "Pointing out controls or icons in an app when someone is new to it.",
+                        "Going over simple instructions step by step while everyone can see."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "book", label: "Guide"),
+                        UseCaseChip(systemImage: "lightbulb", label: "Idea"),
+                        UseCaseChip(systemImage: "questionmark.circle", label: "Questions")
+                    ]
+                )
+
+                // 7. Sharing things to watch
                 UseCaseAccordion(
                     title: "Sharing things to watch",
                     subtitle: "Letting someone just sit back and view",
@@ -260,8 +315,59 @@ struct AboutView: View {
                     ],
                     chips: [
                         UseCaseChip(systemImage: "photo.on.rectangle", label: "Photos"),
-                        UseCaseChip(systemImage: "gamecontroller", label: "Games"),
-                        UseCaseChip(systemImage: "play.rectangle", label: "Demo")
+                        UseCaseChip(systemImage: "play.rectangle", label: "Clips"),
+                        UseCaseChip(systemImage: "sparkles", label: "Demo")
+                    ]
+                )
+
+                // 8. Games and fun
+                UseCaseAccordion(
+                    title: "Games and fun",
+                    subtitle: "Watching the action",
+                    systemImage: "gamecontroller",
+                    points: [
+                        "Letting someone watch a game from a better angle while another person plays.",
+                        "Showing different levels or screens in a game without passing the phone around.",
+                        "Watching a puzzle or quiz app together on a second phone."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "gamecontroller", label: "Game"),
+                        UseCaseChip(systemImage: "puzzlepiece.extension", label: "Puzzle"),
+                        UseCaseChip(systemImage: "face.smiling", label: "Fun")
+                    ]
+                )
+
+                // 9. Work and study
+                UseCaseAccordion(
+                    title: "Work and study",
+                    subtitle: "Looking over simple content",
+                    systemImage: "doc.text",
+                    points: [
+                        "Reading a short document or notes together.",
+                        "Checking a simple slide or diagram while talking it through.",
+                        "Looking at a to‑do list or reminder list with someone else."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "doc.text", label: "Notes"),
+                        UseCaseChip(systemImage: "checkmark.circle", label: "Tasks"),
+                        UseCaseChip(systemImage: "paperclip", label: "Files")
+                    ]
+                )
+
+                // 10. Sorting out problems
+                UseCaseAccordion(
+                    title: "Sorting out problems",
+                    subtitle: "Showing what is going wrong",
+                    systemImage: "exclamationmark.triangle",
+                    points: [
+                        "Showing a strange message or pop‑up on the Host phone from a second screen.",
+                        "Letting someone see error screens or alerts clearly while they suggest what to try.",
+                        "Keeping the Host in hand while another person watches what happens."
+                    ],
+                    chips: [
+                        UseCaseChip(systemImage: "exclamationmark.triangle", label: "Alert"),
+                        UseCaseChip(systemImage: "bolt.badge.a", label: "Glitch"),
+                        UseCaseChip(systemImage: "wrench.and.screwdriver", label: "Fix")
                     ]
                 )
             }
