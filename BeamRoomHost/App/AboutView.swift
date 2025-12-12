@@ -13,6 +13,7 @@ struct AboutView: View {
 
     private enum LegalLinks {
         static let privacyPolicy = URL(string: "https://beamroom.app/privacy.html")!
+        static let appleStandardEULA = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
     }
 
     var body: some View {
@@ -37,9 +38,7 @@ struct AboutView: View {
             .navigationTitle("About BeamRoom")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                    Button("Done") { dismiss() }
                 }
             }
         }
@@ -458,14 +457,14 @@ struct AboutView: View {
                 Divider()
                     .overlay(Color.white.opacity(0.18))
 
-                NavigationLink {
-                    EULAView()
+                Button {
+                    openURL(LegalLinks.appleStandardEULA)
                 } label: {
                     legalRow(
-                        title: "End-User Licence Agreement",
-                        subtitle: "Read in the app",
+                        title: "Terms of Use (EULA)",
+                        subtitle: "Apple Standard EULA",
                         systemImage: "doc.text.fill",
-                        trailingSystemImage: "chevron.right"
+                        trailingSystemImage: "arrow.up.right.square"
                     )
                 }
                 .buttonStyle(.plain)
@@ -533,178 +532,6 @@ struct AboutView: View {
             Text(text)
         }
         .font(.body)
-    }
-}
-
-struct EULAView: View {
-    private enum LegalText {
-        static let effectiveDate = "12 December 2025"
-
-        static let eula = """
-        This End-User Licence Agreement ("Agreement") applies to BeamRoom (the "App").
-
-        By downloading, installing, or using the App, you agree to this Agreement. If you do not agree, do not use the App.
-
-        1. Acknowledgement
-        This Agreement is between you and the App publisher / developer ("Developer"), not Apple. Apple is not responsible for the App or its content, except where the law requires otherwise.
-
-        2. Scope of licence
-        The Developer grants a limited, non-exclusive, non-transferable, revocable licence to use the App on Apple-branded devices that you own or control, for personal or internal use, in accordance with Apple’s App Store terms and this Agreement.
-
-        3. Restrictions
-        Unless the law allows it, the App must not be:
-        • copied, modified, or distributed outside the normal App Store installation and family sharing mechanisms;
-        • reverse engineered, decompiled, or disassembled;
-        • used to develop a competing product or service; or
-        • used in a way that interferes with the App, the local network, or other devices.
-
-        4. Ownership
-        The App and all associated intellectual property rights are owned by the Developer and/or its licensors. This Agreement does not transfer ownership of the App.
-
-        5. Screen sharing, content, and safety
-        BeamRoom enables nearby screen sharing. While sharing is active, viewers can see whatever appears on the host device’s screen, and they may be able to capture or record that content on their own devices.
-        Only share with people you trust, and avoid sharing sensitive information (for example passwords, payment details, private messages, or confidential work material).
-
-        You are responsible for:
-        • ensuring you have permission to share any content displayed on the host screen;
-        • complying with all applicable laws and third-party terms (including streaming or DRM restrictions); and
-        • how and where the App is used (BeamRoom is intended for nearby, in-person use on local networks).
-
-        6. Privacy
-        The Developer’s Privacy Policy explains how BeamRoom handles information. It is available at:
-        https://beamroom.app/privacy.html
-
-        7. Purchases
-        If the App offers in-app purchases, those purchases are processed by Apple. The Developer receives purchase state information from Apple (such as which product identifiers are active) so the App can unlock features.
-
-        8. Maintenance and support
-        The Developer, not Apple, is responsible for providing any maintenance and support for the App, if offered. Apple has no obligation to provide support services for the App.
-
-        9. Warranty
-        To the maximum extent permitted by law, the App is provided "as is" and "as available" without warranties of any kind. The Developer does not guarantee that the App will be uninterrupted, error-free, or work on all networks and environments.
-
-        Some jurisdictions do not allow certain warranty exclusions, so some of the above may not apply.
-
-        10. Product claims
-        If any claim arises that the App fails to conform to any applicable legal or regulatory requirement, you agree that Apple is not responsible for investigating, defending, settling, or discharging that claim. Such claims are the responsibility of the Developer, subject to applicable law.
-
-        11. Limitation of liability
-        To the maximum extent permitted by law, the Developer will not be liable for indirect, incidental, special, consequential, or punitive damages, or for loss of profits, revenue, data, or goodwill, arising out of or related to the use of the App.
-
-        Where liability cannot be excluded, it will be limited to the minimum extent permitted by law.
-
-        12. Legal compliance
-        You represent that:
-        • you are not located in a country subject to a government embargo, and
-        • you are not listed on any government list of prohibited or restricted parties,
-        to the extent such restrictions apply to your use of the App.
-
-        13. Third-party terms
-        The App may interact with Apple frameworks and services (for example ReplayKit, Network.framework, and the App Store). Use of those services may be subject to Apple’s terms and policies.
-
-        14. Termination
-        This Agreement is effective until terminated. The Developer may terminate this Agreement if you breach it. Upon termination, you must stop using the App.
-
-        15. Third-party beneficiary
-        Apple and Apple’s subsidiaries are third-party beneficiaries of this Agreement. Upon your acceptance of this Agreement, Apple will have the right (and will be deemed to have accepted the right) to enforce this Agreement against you as a third-party beneficiary.
-
-        16. Contact
-        For support questions, contact:
-        support@beamroom.app
-        """
-    }
-
-    var body: some View {
-        ZStack {
-            backgroundView
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("End-User Licence Agreement")
-                        .font(.title2.bold())
-
-                    Text("Effective date: \(LegalText.effectiveDate)")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.85))
-
-                    Divider()
-                        .overlay(Color.white.opacity(0.20))
-
-                    Text(LegalText.eula)
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.92))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .padding(18)
-                .hostGlassCard(cornerRadius: 26)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 18)
-            }
-        }
-        .navigationTitle("EULA")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-    }
-
-    private var backgroundView: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.05, blue: 0.12),
-                    Color(red: 0.01, green: 0.01, blue: 0.05)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.accentColor.opacity(0.6),
-                            Color.accentColor.opacity(0.0)
-                        ],
-                        center: .topLeading,
-                        startRadius: 10,
-                        endRadius: 260
-                    )
-                )
-                .blur(radius: 40)
-                .offset(x: -40, y: -80)
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.orange.opacity(0.45),
-                            Color.orange.opacity(0.0)
-                        ],
-                        center: .bottomTrailing,
-                        startRadius: 10,
-                        endRadius: 260
-                    )
-                )
-                .blur(radius: 50)
-                .offset(x: 80, y: 120)
-
-            RoundedRectangle(cornerRadius: 200, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.12),
-                            Color.white.opacity(0.02)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .rotationEffect(.degrees(-18))
-                .blur(radius: 60)
-                .offset(x: 40, y: 40)
-        }
-        .ignoresSafeArea()
     }
 }
 
