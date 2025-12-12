@@ -195,6 +195,20 @@ struct ViewerRootView: View {
     @State private var showAbout = false
     @State private var autoDismissedOnFirstFrame = false
 
+    private var shouldHideViewerChrome: Bool {
+        // Hide chrome as soon as the Host reports the broadcast is ON and this
+        // Viewer is paired. Also hide if a video frame is already on screen.
+        let isPaired: Bool
+        switch model.client.status {
+        case .paired:
+            isPaired = true
+        default:
+            isPaired = false
+        }
+
+        return (isPaired && model.client.broadcastOn) || (model.media.lastImage != nil)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -206,9 +220,9 @@ struct ViewerRootView: View {
                     idleStateView
                 }
             }
-            .navigationTitle("Watch") // Match HostRootView: let the system handle large/inline titles.
+            .navigationTitle(shouldHideViewerChrome ? "" : "Watch")
             .toolbar {
-                if model.media.lastImage == nil {
+                if model.media.lastImage == nil && !shouldHideViewerChrome {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             showAbout = true
@@ -227,9 +241,11 @@ struct ViewerRootView: View {
                 }
             }
         }
-        // NEW: while actively watching, hide nav + tab bars so only the close "X" is tappable.
-        .toolbar(model.media.lastImage == nil ? .automatic : .hidden, for: .navigationBar)
-        .toolbar(model.media.lastImage == nil ? .visible : .hidden, for: .tabBar)
+        // While watching, hide navigation + tab bars so only the close "X" is tappable.
+        .toolbar(shouldHideViewerChrome ? .hidden : .automatic, for: .navigationBar)
+        .toolbar(shouldHideViewerChrome ? .hidden : .visible, for: .tabBar)
+        .toolbarBackground(shouldHideViewerChrome ? .hidden : .visible, for: .navigationBar)
+        .toolbarBackground(shouldHideViewerChrome ? .hidden : .visible, for: .tabBar)
 
         // Same as Share tab: keep navigation dark-styled so titles are white.
         .toolbarColorScheme(.dark, for: .navigationBar)
