@@ -90,8 +90,9 @@ extension ViewerRootView {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .imageScale(.large)
-                        .padding(8)
+                        .frame(width: 44, height: 44)
                 }
+                .contentShape(Rectangle())
                 .background(.thinMaterial)
                 .clipShape(Circle())
                 .padding(.top, 16)
