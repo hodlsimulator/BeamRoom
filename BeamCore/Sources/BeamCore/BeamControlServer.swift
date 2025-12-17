@@ -56,8 +56,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
     private var lastBroadcastOn: Bool = BeamConfig.isBroadcastOn()
     private var broadcastPoll: DispatchSourceTimer?
 
-    // UDP media
-    private var media: MediaUDP?
+    private var lastUDPPort: UInt16? = BeamConfig.getBroadcastUDPPort()
 
     public init(autoAccept: Bool = false) {
         self.autoAccept = autoAccept
@@ -69,7 +68,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
     public func start(serviceName: String) throws {
         guard listener == nil else { throw BeamError.alreadyRunning }
 
-        // TCP listener for control: local Wi‑Fi + peer‑to‑peer (no cellular).
+        // TCP listener for control: local Wi-Fi + peer-to-peer (no cellular).
         let params = BeamTransportParameters.tcpInfraWiFi()
         let port = NWEndpoint.Port(rawValue: BeamConfig.controlPort)!
         let lis = try NWListener(using: params, on: port)
@@ -79,6 +78,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 serverLog.debug("Listener state \(String(describing: state))")
+
                 switch state {
                 case .ready:
                     BeamLog.info("Host listener state=ready", tag: "host")
@@ -106,45 +106,7 @@ public final class BeamControlServer: NSObject, ObservableObject {
         // Bonjour publish
         publishBonjour(name: serviceName, type: BeamConfig.controlService, port: Int(BeamConfig.controlPort))
 
-        // UDP media (listener + peer capture)
-        let media = MediaUDP(
-            onPeerChanged: { [weak self] peer in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.udpPeer = peer
-
-                    // Stop any legacy test stream if the peer vanishes.
-                    // Do NOT auto-start the M3 test stream any more; real video comes from H.264 uplink.
-                    if peer == nil, self.isStreaming {
-                        self.stopTestStream()
-                    }
-                }
-            }
-        )
-
-        self.media = media
-
-        media.start(
-            onReady: { [weak self] udpPort in
-                Task { @MainActor in
-                    guard let self else { return }
-                    BeamLog.info("Media UDP ready on port \(udpPort)", tag: "host")
-                    BeamConfig.setBroadcastUDPPort(udpPort)
-
-                    // Push MediaParams to all paired clients
-                    for conn in self.connections.values where conn.sessionID != nil {
-                        conn.sendMediaParams(udpPort: udpPort)
-                    }
-                }
-            },
-            onError: { err in
-                Task { @MainActor in
-                    BeamLog.error("Media UDP failed: \(err.localizedDescription)", tag: "host")
-                }
-            }
-        )
-
-        // Broadcast poll → inform all clients live
+        // Broadcast poll → inform all clients live (and publish UDP port changes that come from the extension)
         startBroadcastPoll()
 
         BeamLog.info("Host advertising '\(serviceName)' \(BeamConfig.controlService) on \(BeamConfig.controlPort)", tag: "host")
@@ -152,12 +114,9 @@ public final class BeamControlServer: NSObject, ObservableObject {
 
     public func stop() {
         stopBroadcastPoll()
-        media?.stop()
-        media = nil
         isStreaming = false
         udpPeer = nil
 
-        // Close children first
         for (_, c) in connections {
             c.close()
         }
@@ -186,22 +145,17 @@ public final class BeamControlServer: NSObject, ObservableObject {
     // MARK: Test stream control (M3)
 
     public func startTestStream() {
-        guard let media else { return }
-        BeamLog.info("Test stream START requested (UI/auto)", tag: "host")
-        media.startTestFrames()
-        isStreaming = true
+        BeamLog.warn("Test stream is unavailable in this build.", tag: "host")
+        isStreaming = false
     }
 
     public func stopTestStream() {
-        BeamLog.info("Test stream STOP requested (UI/auto)", tag: "host")
-        media?.stopTestFrames()
         isStreaming = false
     }
 
     // MARK: Internal utilities (internal so Conn can call them from another file)
 
     func acceptConnection(_ conn: Conn, code: String) {
-        // Idempotent: if this connection already has a session, just re-ack and push state.
         if let existing = conn.sessionID {
             conn.sendHandshake(
                 ok: true,
@@ -230,7 +184,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
             )
         )
 
-        // Handshake response with udpPort if known
         let udpPort = BeamConfig.getBroadcastUDPPort()
         conn.sendHandshake(ok: true, sessionID: sid, message: nil, udpPort: udpPort)
         if let udp = udpPort {
@@ -240,7 +193,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
     }
 
     func queuePending(for conn: Conn, code: String) {
-        // De-dupe: drop any earlier pending row tied to this connection.
         if let old = conn.pendingPairID {
             pendingPairs.removeAll { $0.id == old }
         }
@@ -288,7 +240,6 @@ public final class BeamControlServer: NSObject, ObservableObject {
         let ns = NetService(domain: "local.", type: svcType, name: name, port: Int32(port))
         ns.includesPeerToPeer = true
 
-        // Use a proxy to avoid having the @MainActor class conform to NetServiceDelegate.
         let proxy = NetServiceDelegateProxy(
             onPublished: { [weak self] sender in
                 Task { @MainActor in
@@ -334,11 +285,22 @@ public final class BeamControlServer: NSObject, ObservableObject {
         t.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+
                 let on = BeamConfig.isBroadcastOn()
                 if on != self.lastBroadcastOn {
                     self.lastBroadcastOn = on
                     for conn in self.connections.values where conn.sessionID != nil {
                         conn.sendBroadcast(hasOn: on)
+                    }
+                }
+
+                let udp = BeamConfig.getBroadcastUDPPort()
+                if udp != self.lastUDPPort {
+                    self.lastUDPPort = udp
+                    if let udp {
+                        for conn in self.connections.values where conn.sessionID != nil {
+                            conn.sendMediaParams(udpPort: udp)
+                        }
                     }
                 }
             }

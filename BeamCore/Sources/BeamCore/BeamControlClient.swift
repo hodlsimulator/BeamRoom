@@ -377,27 +377,10 @@ public final class BeamControlClient: ObservableObject {
 
     @MainActor
     private func startLivenessWatch() {
+        // The Host UI process may be suspended while the Broadcast Upload extension
+        // continues streaming video. Liveness is therefore driven by the media path,
+        // not the control plane.
         stopLivenessWatch()
-        lastRxAt = Date()
-
-        let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + livenessGrace, repeating: livenessGrace)
-        t.setEventHandler { [weak self] in
-            guard let self else { return }
-            guard case .paired = self.status else { return }
-
-            let last = self.lastRxAt ?? Date()
-            let gap = Date().timeIntervalSince(last)
-
-            if gap > self.livenessGrace {
-                BeamLog.warn("LIVENESS: no host traffic for \(Int(gap))s; marking failed (will close)", tag: "viewer")
-                self.status = .failed(reason: "Lost contact with host")
-                self.connection?.cancel()
-                self.scheduleRetry(because: "liveness")
-            }
-        }
-        t.resume()
-        livenessTimer = t
     }
 
     @MainActor

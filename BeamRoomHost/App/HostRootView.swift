@@ -16,6 +16,7 @@ import BeamCore
 
 @MainActor
 final class HostViewModel: ObservableObject {
+
     @Published var serviceName: String = UIDevice.current.name
     @Published var started: Bool = false
     @Published var autoAccept: Bool
@@ -25,15 +26,13 @@ final class HostViewModel: ObservableObject {
     @Published var udpPeer: String? = nil
 
     let server: BeamControlServer
-
     private var cancellables: Set<AnyCancellable> = []
     private var broadcastPoll: DispatchSourceTimer?
 
     init() {
-        // Default to auto‑accept so the common “one Host + one Viewer”
+        // Default to auto-accept so the common “one Host + one Viewer”
         // flow works without extra approval taps.
         let auto = true
-
         self.server = BeamControlServer(autoAccept: auto)
         self.autoAccept = auto
 
@@ -94,7 +93,6 @@ final class HostViewModel: ObservableObject {
             startBroadcastPoll()
 
             if BeamConfig.isBroadcastOn() {
-                BackgroundAudioKeeper.shared.start()
                 broadcastOn = true
             } else {
                 broadcastOn = false
@@ -111,10 +109,9 @@ final class HostViewModel: ObservableObject {
         started = false
         stopBroadcastPoll()
         broadcastOn = false
-        BackgroundAudioKeeper.shared.stop()
     }
 
-    // MARK: - Broadcast polling → drives background audio
+    // MARK: - Broadcast polling
 
     private func startBroadcastPoll() {
         stopBroadcastPoll()
@@ -132,12 +129,6 @@ final class HostViewModel: ObservableObject {
 
                 if on != self.broadcastOn {
                     self.broadcastOn = on
-
-                    if on {
-                        BackgroundAudioKeeper.shared.start()
-                    } else {
-                        BackgroundAudioKeeper.shared.stop()
-                    }
                 }
             }
         }
@@ -155,6 +146,7 @@ final class HostViewModel: ObservableObject {
 // MARK: - Host view
 
 struct HostRootView: View {
+
     @StateObject var model = HostViewModel()
     @StateObject var broadcastController = BroadcastLaunchController()
 
@@ -179,9 +171,7 @@ struct HostRootView: View {
             .navigationTitle("Share")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingAbout = true
-                    } label: {
+                    Button { showingAbout = true } label: {
                         Image(systemName: "info.circle")
                     }
                     .accessibilityLabel("About BeamRoom")
@@ -193,7 +183,6 @@ struct HostRootView: View {
                     .padding(.vertical, 12)
             }
         }
-        // Keep the whole screen dark-styled, so the title is white even in system light mode.
         .toolbarColorScheme(.dark, for: .navigationBar)
         .sheet(isPresented: $showingAbout) {
             AboutView()
@@ -212,7 +201,6 @@ struct HostRootView: View {
             }
 
             Button(role: .cancel) {
-                // no extra action needed
             } label: {
                 Text("Cancel")
                     .lineLimit(1)
@@ -221,15 +209,12 @@ struct HostRootView: View {
         } message: {
             Text(
                 """
-                If the sheet does not appear, open Control Centre, long‑press Screen Recording, choose “BeamRoom”, then tap Start Broadcast.
+                If the sheet does not appear, open Control Centre, long-press Screen Recording, choose “BeamRoom”, then tap Start Broadcast.
                 Once broadcasting, video is sent to paired Viewers even while this app is in the background.
                 """
             )
         }
         .onAppear {
-            // If a Broadcast is already running (for example started from
-            // Control Centre), automatically start hosting so Viewers can
-            // connect without extra taps.
             if model.broadcastOn, !model.started {
                 model.toggleServer()
             }
@@ -244,7 +229,6 @@ final class BroadcastLaunchController: ObservableObject {
 
     func startBroadcast() {
         guard let pickerView else { return }
-
         for subview in pickerView.subviews {
             if let button = subview as? UIButton {
                 button.sendActions(for: .touchUpInside)
@@ -257,15 +241,13 @@ final class BroadcastLaunchController: ObservableObject {
 /// Invisible RPSystemBroadcastPickerView wired to a controller.
 /// The large SwiftUI button calls `startBroadcast()` which taps it.
 struct BroadcastPickerShim: UIViewRepresentable {
+
     @ObservedObject var controller: BroadcastLaunchController
 
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView()
         picker.showsMicrophoneButton = true
-
-        // Let the system show all upload extensions; selection is made from the list.
         picker.preferredExtension = nil
-
         controller.pickerView = picker
         return picker
     }
