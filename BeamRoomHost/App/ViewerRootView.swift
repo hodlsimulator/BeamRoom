@@ -103,13 +103,13 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    /// Start UDP media if paired and Broadcast is reported as ON.
+    /// Start UDP media once we know the Host's UDP port.
     func maybeStartMedia() {
-        // Only start UDP when the Host says the broadcast is ON.
-        guard client.broadcastOn else {
-            BeamLog.debug("Broadcast is OFF; not starting UDP yet", tag: "viewer")
-            return
-        }
+        // Start UDP as soon as we know the Host's UDP port.
+        //
+        // The TCP control channel is used for discovery + pairing, but the Host UI
+        // process can be suspended while the Broadcast Upload extension continues
+        // streaming. The UDP media path needs to be able to continue independently.
 
         guard
             case .paired(_, let maybePort) = client.status,
@@ -290,10 +290,14 @@ struct ViewerRootView: View {
                 // Newly paired or re‑paired → ensure UDP media is running.
                 model.maybeStartMedia()
 
-            case .failed, .idle:
-                // Lost contact with Host or explicitly disconnected.
-                // Tear down UDP so there is no frozen last frame and allow a
-                // completely fresh auto‑connect / pairing on the next Host.
+            case .failed(let reason):
+                // The Host UI process may be suspended in the background, which can
+                // drop the TCP control link even while the Broadcast Upload extension
+                // continues streaming. Keep the UDP media path alive.
+                BeamLog.warn("Control channel lost: \(reason)", tag: "viewer")
+
+            case .idle:
+                // Explicitly disconnected.
                 model.media.disarmAutoReconnect()
                 model.media.disconnect()
                 model.selectedHost = nil

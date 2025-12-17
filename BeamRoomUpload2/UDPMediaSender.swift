@@ -59,7 +59,26 @@ actor UDPMediaSender {
         paramSets: H264Wire.ParamSets?,
         isKeyframe: Bool
     ) async {
-        guard let key = activeKey, let c = conns[key] else { return }
+        // Prefer the current active peer. If we only have one connection, treat it as active.
+        var sendKey: String?
+        var sendConn: NWConnection?
+
+        if let key = activeKey, let c = conns[key] {
+            sendKey = key
+            sendConn = c
+        } else if conns.count == 1, let (onlyKey, onlyConn) = conns.first {
+            sendKey = onlyKey
+            sendConn = onlyConn
+            activeKey = onlyKey
+            startExpiryTimerIfNeeded()
+        }
+
+        guard let key = sendKey, let c = sendConn else { return }
+        activeKey = key
+
+        // Treat outbound traffic as activity so brief keepalive hiccups don't freeze video.
+        activeLastSeen = Date()
+
 
         var cfg = Data()
         var flags = H264Wire.Flags()
@@ -262,18 +281,12 @@ actor UDPMediaSender {
         expireTimer = t
     }
 
-    private func expireCheck(ttl: TimeInterval = 6.0) async {
+    private func expireCheck(ttl: TimeInterval = 20.0) async {
         if let _ = activeKey, Date().timeIntervalSince(activeLastSeen) > ttl {
             BeamLog.warn("UDP peer expired (no datagrams in \(Int(ttl))s)", tag: "ext")
             activeKey = nil
         }
 
-        if activeKey == nil, !conns.isEmpty {
-            for (_, c) in conns {
-                c.cancel()
-            }
-            conns.removeAll()
-        }
     }
 
     private func evict(_ key: String) {
