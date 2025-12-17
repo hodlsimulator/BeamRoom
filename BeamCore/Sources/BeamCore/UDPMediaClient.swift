@@ -20,12 +20,12 @@ private let mediaOS = Logger(
 
 private func udpIfaceTypeString(_ t: NWInterface.InterfaceType) -> String {
     switch t {
-    case .wifi:           return "wifi"
-    case .cellular:       return "cellular"
-    case .wiredEthernet:  return "wired"
-    case .loopback:       return "loop"
-    case .other:          return "other"
-    @unknown default:     return "other"
+    case .wifi: return "wifi"
+    case .cellular: return "cellular"
+    case .wiredEthernet: return "wired"
+    case .loopback: return "loop"
+    case .other: return "other"
+    @unknown default: return "other"
     }
 }
 
@@ -62,7 +62,6 @@ public final class UDPMediaClient: ObservableObject {
     private var bytesInWindow: Int = 0
     private var framesInWindow: Int = 0
     private var windowStart = Date()
-
     private var connectedKey: String?
     private var lastTarget: (host: NWEndpoint.Host, port: UInt16)?
 
@@ -81,7 +80,18 @@ public final class UDPMediaClient: ObservableObject {
 
     // Keep-alive so the Host retains our peer mapping.
     private var keepaliveTimer: DispatchSourceTimer?
-    private let keepaliveInterval: TimeInterval = 2.5
+
+    // More aggressive keepalive helps preserve the mapping through backgrounding / AWDL quirks.
+    private let keepaliveInterval: TimeInterval = 1.0
+
+    // NEW: Silence-based liveness watchdog (UDP can stall without errors).
+    private var livenessTimer: DispatchSourceTimer?
+    private let livenessInterval: TimeInterval = 1.0
+    private let noDatagramTimeoutAfterReady: TimeInterval = 6.0
+    private let noDatagramTimeoutAfterData: TimeInterval = 4.0
+    private var readyAt: Date?
+    private var lastDatagramAt: Date?
+    private var reachedReady: Bool = false
 
     // M4 video pipeline
     private let assembler = H264Assembler()
@@ -91,7 +101,7 @@ public final class UDPMediaClient: ObservableObject {
 
     // MARK: - Public API
 
-    /// Enable automatic UDP reconnect after *network* errors.
+    /// Enable automatic UDP reconnect after *network* errors (and liveness timeouts).
     public func armAutoReconnect() {
         autoReconnectWanted = true
     }
@@ -114,8 +124,7 @@ public final class UDPMediaClient: ObservableObject {
             return
         }
 
-        // Remember the new target first so error-based auto-reconnect uses
-        // the latest Host+port.
+        // Remember the new target first so error-based auto-reconnect uses the latest Host+port.
         lastTarget = (host, port)
 
         // This is a manual retarget: cancel any pending auto-reconnect and
@@ -128,7 +137,12 @@ public final class UDPMediaClient: ObservableObject {
             return
         }
 
+        readyAt = nil
+        lastDatagramAt = nil
+        reachedReady = false
+
         let params = NWParameters.udp
+
         // Allow infra Wi‑Fi + peer-to-peer (AWDL / Wi‑Fi Aware), avoid cellular.
         params.includePeerToPeer = true
         params.prohibitedInterfaceTypes = [.cellular]
@@ -153,10 +167,16 @@ public final class UDPMediaClient: ObservableObject {
             case .ready:
                 mediaOS.info("UDP ready → \(String(describing: host)):\(port)")
                 BeamLog.info("UDP state=ready (\(ps)) → send hello & recv", tag: "viewer")
+
                 Task { @MainActor in
+                    self.reachedReady = true
+                    self.readyAt = Date()
+                    self.lastDatagramAt = nil
+
                     self.sendHello()
                     self.startAfterReadyWarnTimer(host: host, port: port)
                     self.startKeepalives()
+                    self.startLivenessWatch()
                     self.receiveLoop()
                 }
 
@@ -178,14 +198,11 @@ public final class UDPMediaClient: ObservableObject {
                 }
 
             @unknown default:
-                BeamLog.debug(
-                    "UDP state=\(String(describing: state)) (\(ps))",
-                    tag: "viewer"
-                )
+                BeamLog.debug("UDP state=\(String(describing: state)) (\(ps))", tag: "viewer")
             }
         }
 
-        // NEW: react to path changes (e.g. after a phone call or Wi‑Fi blip).
+        // React to path changes (e.g. after a phone call or Wi‑Fi blip).
         c.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             let summary = udpPathSummary(path)
@@ -216,13 +233,20 @@ public final class UDPMediaClient: ObservableObject {
 
     private func disconnectInternal(scheduleReconnect shouldReconnect: Bool) {
         // Timers
+        stopLivenessWatch()
+
         afterReadyWarnTimer?.cancel()
         afterReadyWarnTimer = nil
+
         stopKeepalives()
 
         conn?.cancel()
         conn = nil
         connectedKey = nil
+
+        reachedReady = false
+        readyAt = nil
+        lastDatagramAt = nil
 
         // Visible state
         lastImage = nil
@@ -253,15 +277,11 @@ public final class UDPMediaClient: ObservableObject {
 
     private func sendHello() {
         guard let c = conn else { return }
-
         let hello = Data([0x42, 0x52, 0x48, 0x49, 0x21]) // "BRHI!"
 
         c.send(content: hello, completion: .contentProcessed { maybeErr in
             if let e = maybeErr {
-                BeamLog.error(
-                    "UDP hello send error: \(e.localizedDescription)",
-                    tag: "viewer"
-                )
+                BeamLog.error("UDP hello send error: \(e.localizedDescription)", tag: "viewer")
             } else {
                 mediaOS.debug("UDP hello → sent")
                 BeamLog.debug("UDP hello → sent (5 bytes)", tag: "viewer")
@@ -276,12 +296,11 @@ public final class UDPMediaClient: ObservableObject {
             guard let self else { return }
 
             if let d = data, !d.isEmpty {
+                self.lastDatagramAt = Date()
+
                 if !self.sawAnyDatagram {
                     self.sawAnyDatagram = true
-                    BeamLog.info(
-                        "UDP rx first datagram: \(d.count) bytes",
-                        tag: "viewer"
-                    )
+                    BeamLog.info("UDP rx first datagram: \(d.count) bytes", tag: "viewer")
                     self.afterReadyWarnTimer?.cancel()
                     self.afterReadyWarnTimer = nil
                 }
@@ -290,13 +309,8 @@ public final class UDPMediaClient: ObservableObject {
             }
 
             if let error {
-                mediaOS.error(
-                    "UDP recv error: \(error.localizedDescription, privacy: .public)"
-                )
-                BeamLog.error(
-                    "UDP recv error: \(error.localizedDescription)",
-                    tag: "viewer"
-                )
+                mediaOS.error("UDP recv error: \(error.localizedDescription, privacy: .public)")
+                BeamLog.error("UDP recv error: \(error.localizedDescription)", tag: "viewer")
                 Task { @MainActor in
                     self.disconnectInternal(scheduleReconnect: true)
                 }
@@ -315,7 +329,6 @@ public final class UDPMediaClient: ObservableObject {
         if stats.frames > 0, unit.seq > stats.lastSeq + 1 {
             stats.drops += UInt64(unit.seq - stats.lastSeq - 1)
         }
-
         stats.lastSeq = unit.seq
         stats.frames &+= 1
 
@@ -327,6 +340,7 @@ public final class UDPMediaClient: ObservableObject {
         if elapsed >= 1.0 {
             stats.fps = Double(framesInWindow) / elapsed
             stats.kbps = Double(bytesInWindow * 8) / elapsed / 1000.0
+
             windowStart = now
             bytesInWindow = 0
             framesInWindow = 0
@@ -334,10 +348,7 @@ public final class UDPMediaClient: ObservableObject {
             BeamLog.debug(
                 String(
                     format: "UDP video rx ~ %.1f fps • %.0f kbps • frames %llu • drops %llu",
-                    stats.fps,
-                    stats.kbps,
-                    stats.frames,
-                    stats.drops
+                    stats.fps, stats.kbps, stats.frames, stats.drops
                 ),
                 tag: "viewer"
             )
@@ -349,14 +360,10 @@ public final class UDPMediaClient: ObservableObject {
 
         decoder.decode(avcc: unit.avccData, paramSets: unit.paramSets) { [weak self] cg in
             guard let self else { return }
-
             if let cg {
                 if !self.sawFirstValidFrame {
                     self.sawFirstValidFrame = true
-                    BeamLog.info(
-                        "UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))",
-                        tag: "viewer"
-                    )
+                    BeamLog.info("UDP first valid H.264 frame ✓ \(w)x\(h) (seq \(s))", tag: "viewer")
                 }
                 self.lastImage = cg
             }
@@ -371,23 +378,13 @@ public final class UDPMediaClient: ObservableObject {
             lastSummaryAt = now
 
             var bits: [String] = []
-
-            if shortHeaderCount > 0 {
-                bits.append("short \(shortHeaderCount)")
-            }
-            if badMagicCount > 0 {
-                bits.append("badMagic \(badMagicCount)")
-            }
-            if badSizeCount > 0 {
-                bits.append("badSize \(badSizeCount)")
-            }
+            if shortHeaderCount > 0 { bits.append("short \(shortHeaderCount)") }
+            if badMagicCount > 0 { bits.append("badMagic \(badMagicCount)") }
+            if badSizeCount > 0 { bits.append("badSize \(badSizeCount)") }
 
             if !bits.isEmpty {
                 let suffix = extra.map { " • \($0)" } ?? ""
-                BeamLog.info(
-                    "UDP rx rejects: " + bits.joined(separator: " • ") + suffix,
-                    tag: "viewer"
-                )
+                BeamLog.info("UDP rx rejects: " + bits.joined(separator: " • ") + suffix, tag: "viewer")
             }
         }
     }
@@ -399,6 +396,7 @@ public final class UDPMediaClient: ObservableObject {
         t.schedule(deadline: .now() + 2.0, repeating: 3.0)
         t.setEventHandler { [weak self] in
             guard let self else { return }
+
             if !self.sawAnyDatagram {
                 BeamLog.warn(
                     "UDP ready but still no datagrams from \(String(describing: host)):\(port)",
@@ -417,10 +415,7 @@ public final class UDPMediaClient: ObservableObject {
         stopKeepalives()
 
         let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(
-            deadline: .now() + keepaliveInterval,
-            repeating: keepaliveInterval
-        )
+        t.schedule(deadline: .now() + keepaliveInterval, repeating: keepaliveInterval)
         t.setEventHandler { [weak self] in
             guard let self else { return }
             self.sendHello()
@@ -434,9 +429,55 @@ public final class UDPMediaClient: ObservableObject {
         keepaliveTimer = nil
     }
 
-    private func scheduleReconnect(
-        to target: (host: NWEndpoint.Host, port: UInt16)
-    ) {
+    // MARK: - Liveness watchdog (silence-based)
+
+    private func startLivenessWatch() {
+        stopLivenessWatch()
+
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + livenessInterval, repeating: livenessInterval)
+        t.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.livenessTick()
+        }
+        t.resume()
+        livenessTimer = t
+    }
+
+    private func stopLivenessWatch() {
+        livenessTimer?.cancel()
+        livenessTimer = nil
+    }
+
+    private func livenessTick() {
+        guard autoReconnectWanted else { return }
+        guard reachedReady, conn != nil else { return }
+
+        let now = Date()
+
+        if !sawAnyDatagram {
+            if let readyAt, now.timeIntervalSince(readyAt) > noDatagramTimeoutAfterReady {
+                BeamLog.warn(
+                    "UDP liveness: ready but no datagrams in \(Int(noDatagramTimeoutAfterReady))s → reconnect",
+                    tag: "viewer"
+                )
+                disconnectInternal(scheduleReconnect: true)
+            }
+            return
+        }
+
+        if let last = lastDatagramAt, now.timeIntervalSince(last) > noDatagramTimeoutAfterData {
+            BeamLog.warn(
+                "UDP liveness: stalled (no datagrams in \(Int(noDatagramTimeoutAfterData))s) → reconnect",
+                tag: "viewer"
+            )
+            disconnectInternal(scheduleReconnect: true)
+        }
+    }
+
+    // MARK: - Reconnect scheduler
+
+    private func scheduleReconnect(to target: (host: NWEndpoint.Host, port: UInt16)) {
         cancelReconnect()
 
         let t = DispatchSource.makeTimerSource(queue: .main)
